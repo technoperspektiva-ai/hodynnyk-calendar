@@ -1,4 +1,4 @@
-const VERSION = '0.2.1';
+const VERSION = '0.3.0';
 const STATIC_CACHE = `hodynnyk-static-${VERSION}`;
 const RUNTIME_CACHE = `hodynnyk-runtime-${VERSION}`;
 
@@ -9,7 +9,7 @@ const PRECACHE = [
   '/app.js',
   '/pwa.js',
   '/manifest.webmanifest',
-  '/assets/hodynnyk-scene.webp',
+  '/assets/loading-screen.webp',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
   '/icons/icon-maskable-192.png',

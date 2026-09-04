@@ -2,22 +2,22 @@ const $ = (s, root = document) => root.querySelector(s);
 const $$ = (s, root = document) => [...root.querySelectorAll(s)];
 const pad = n => String(n).padStart(2, '0');
 const esc = v => String(v ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
-const monthName = d => new Intl.DateTimeFormat('uk-UA', { month:'long', year:'numeric' }).format(d);
-const humanDate = value => new Intl.DateTimeFormat('uk-UA', { day:'2-digit', month:'short' }).format(new Date(`${value}T12:00:00`));
 const monthKey = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}`;
 const isoDate = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
-const WEEK_KEYS = ['mon','tue','wed','thu','fri','sat','sun'];
-const WEEK_LABELS = {mon:'Пн',tue:'Вт',wed:'Ср',thu:'Чт',fri:'Пт',sat:'Сб',sun:'Нд'};
+const monthName = d => new Intl.DateTimeFormat('uk-UA', { month:'long', year:'numeric' }).format(d);
+const humanDate = value => new Intl.DateTimeFormat('uk-UA', { weekday:'long', day:'numeric', month:'long', year:'numeric' }).format(new Date(`${value}T12:00:00`));
+const shortDate = value => new Intl.DateTimeFormat('uk-UA', { day:'2-digit', month:'2-digit', year:'numeric' }).format(new Date(`${value}T12:00:00`));
 
 let viewDate = new Date();
 viewDate.setDate(1);
-let selected = isoDate(new Date());
 let state = null;
 let user = null;
 let config = null;
+let selected = isoDate(new Date());
 
 function toast(text) {
   const el = $('#toast');
+  if (!el) return;
   el.textContent = text;
   el.classList.add('show');
   clearTimeout(toast.t);
@@ -51,15 +51,11 @@ function finishBoot() {
 function loginScreen(message = '') {
   $('#app').innerHTML = `
     <main class="welcome-shell">
-      <section class="welcome-visual" aria-hidden="true">
-        <img src="/assets/hodynnyk-scene.webp" alt="">
-        <div class="welcome-glow"></div>
-      </section>
       <section class="welcome-content">
-        <div class="brand warm-brand"><img class="brandicon" src="/icons/icon-192.png" alt=""><div><h1>Hodynnyk</h1><small>WORK CALENDAR</small></div></div>
+        <div class="brand warm-brand"><div class="brandmark">H</div><div><h1>Hodynnyk</h1><small>WORK CALENDAR</small></div></div>
         <span class="welcome-kicker">QA · АЗС · ТЕСТИ</span>
-        <h2>Один календар для двох робіт.</h2>
-        <p>${message ? esc(message) : 'Позначай відпрацьовані дні, плануй зміни АЗС і тримай QA availability в одному місці.'}</p>
+        <h2>Робочий календар без зайвого.</h2>
+        <p>${message ? esc(message) : 'Увійди через Telegram, натисни дату та внеси день у кілька дотиків.'}</p>
         <div class="actions welcome-actions">
           ${config?.authConfigured ? '<a class="btn primary" href="/api/auth/login?return=/">Увійти через Telegram</a>' : '<span class="pill">Telegram login ще не налаштований</span>'}
           <button class="btn ghost" type="button" data-install-pwa hidden>Встановити PWA</button>
@@ -69,122 +65,108 @@ function loginScreen(message = '') {
   finishBoot();
 }
 
+function detailForDate(date) {
+  const raw = state?.dayDetails?.[date] || {};
+  const fallbackTypes = Array.isArray(state?.workLog?.[date]) ? state.workLog[date] : [];
+  const shift = (state?.shifts || []).find(s => s.date === date);
+  return {
+    types: Array.isArray(raw.types) ? raw.types : fallbackTypes,
+    tests: Math.max(0, Number(raw.tests || 0)),
+    start: raw.start || shift?.start || '',
+    end: raw.end || '',
+    note: raw.note || ''
+  };
+}
+
+function monthTarget() {
+  return Math.max(0, Number(state?.metrics?.[monthKey(viewDate)]?.target || 0));
+}
+
+function monthStats() {
+  const key = monthKey(viewDate);
+  let qa = 0, azs = 0, tests = 0, workDays = 0;
+  const dates = new Set([
+    ...Object.keys(state?.workLog || {}),
+    ...Object.keys(state?.dayDetails || {})
+  ]);
+  for (const date of dates) {
+    if (!date.startsWith(key)) continue;
+    const d = detailForDate(date);
+    if (d.types.includes('qa')) qa++;
+    if (d.types.includes('azs')) azs++;
+    if (d.types.length) workDays++;
+    tests += Math.max(0, Number(d.tests || 0));
+  }
+  return { qa, azs, tests, workDays, target:monthTarget() };
+}
+
+function absenceSetForMonth() {
+  return new Set((state?.computed?.monthAbsences?.[monthKey(viewDate)] || []).map(x => x.date));
+}
 
 function roleLabel() {
-  return user?.role === 'manager' ? 'Керівник' : 'Мій профіль';
-}
-
-function metricForMonth() {
-  const m = monthKey(viewDate);
-  return state?.metrics?.[m] || { completed:0, target:0 };
-}
-
-function absencesForMonth() {
-  return state?.computed?.monthAbsences?.[monthKey(viewDate)] || [];
-}
-
-function shiftsForDate(date) {
-  return (state?.shifts || []).filter(s => s.date === date);
-}
-
-function workForDate(date) {
-  return Array.isArray(state?.workLog?.[date]) ? state.workLog[date] : [];
-}
-
-function workCountsForMonth() {
-  const m = monthKey(viewDate);
-  let qa = 0, azs = 0, total = 0;
-  Object.entries(state?.workLog || {}).forEach(([date, types]) => {
-    if (!date.startsWith(m) || !Array.isArray(types)) return;
-    if (types.includes('qa')) qa++;
-    if (types.includes('azs')) azs++;
-    if (types.length) total++;
-  });
-  return { qa, azs, total };
+  return user?.role === 'manager' ? 'Керівник' : 'Мій календар';
 }
 
 function renderShell() {
   $('#app').innerHTML = `
-    <main class="shell role-${esc(user.role)}">
-      <header class="topbar">
-        <div class="brand">
-          <img class="brandicon" src="/icons/icon-192.png" alt="">
-          <div><h1>Hodynnyk</h1><small>WORK CALENDAR</small></div>
+    <main class="calendar-app role-${esc(user.role)}">
+      <header class="appbar">
+        <div class="brand compact-brand">
+          <div class="brandmark">H</div>
+          <div><h1>Hodynnyk</h1><small>${esc(roleLabel())}</small></div>
         </div>
-        <div class="userbar">
-          <span class="pill green">${roleLabel()}</span>
+        <div class="appbar-actions">
           ${user?.picture ? `<img class="avatar" src="${esc(user.picture)}" alt="">` : ''}
-          <span class="pill user-name">${esc(user?.name || user?.username || 'User')}</span>
-          <button class="btn ghost" type="button" data-install-pwa hidden>Встановити</button>
-          ${config?.authConfigured ? '<a class="btn ghost" href="/api/auth/logout">Вийти</a>' : ''}
+          <button class="iconbtn soft" type="button" data-install-pwa hidden aria-label="Встановити PWA">↓</button>
+          <a class="iconbtn soft" href="/api/auth/logout" aria-label="Вийти">↗</a>
         </div>
       </header>
 
-      <section class="cozy-hero">
-        <div class="cozy-copy">
-          <span class="welcome-kicker">МІЙ РИТМ НА МІСЯЦЬ</span>
-          <h2>Робочий календар без зайвого шуму.</h2>
-          <p>Тап по даті — і ти одразу відмічаєш QA або АЗС. Підсумок місяця рахується автоматично.</p>
-          <div class="hero-chips"><span>QA</span><span>АЗС</span><span>Tests</span></div>
-        </div>
-        <div class="cozy-visual" aria-hidden="true"><img src="/assets/hodynnyk-scene.webp" alt=""></div>
-      </section>
-
-      <section class="stats" id="stats"></section>
-
-      <section class="grid">
-        <div class="stack">
-          <section class="card cardpad">
-            <div class="calendar-head">
-              <div>
-                <div class="section-title" style="margin-bottom:5px"><h2>Календар</h2></div>
-                <div class="month" id="monthTitle"></div>
-              </div>
-              <div class="nav">
-                <button class="iconbtn" id="prevMonth" aria-label="Попередній місяць">←</button>
-                <button class="btn ghost" id="todayMonth">сьогодні</button>
-                <button class="iconbtn" id="nextMonth" aria-label="Наступний місяць">→</button>
-              </div>
+      <section class="calendar-stage">
+        <section class="calendar-card">
+          <div class="calendar-toolbar">
+            <div class="month-nav">
+              <button class="iconbtn" id="prevMonth" aria-label="Попередній місяць">←</button>
+              <button class="month-button" id="todayMonth" type="button"><span id="monthTitle"></span><small>натисни, щоб повернутись до сьогодні</small></button>
+              <button class="iconbtn" id="nextMonth" aria-label="Наступний місяць">→</button>
             </div>
-            <div class="week"><div>Пн</div><div>Вт</div><div>Ср</div><div>Чт</div><div>Пт</div><div>Сб</div><div>Нд</div></div>
-            <div class="days" id="calendarDays"></div>
-          </section>
+            <button class="btn export-btn" id="exportExcel" type="button">Excel ↓</button>
+          </div>
 
-          <section class="card cardpad">
-            <div class="section-title"><h2>QA report</h2><span id="reportCount"></span></div>
-            <div class="report" id="reportText"></div>
-            <div class="actions" style="margin-top:12px">
-              <button class="btn primary" id="copyReport">Копіювати</button>
-              <button class="btn ghost" id="shareReport">Поділитися</button>
-            </div>
-          </section>
-        </div>
+          <div class="month-summary" id="monthSummary"></div>
 
-        <aside class="stack">
-          <section class="card cardpad" id="testsCard"></section>
-          <section class="card cardpad" id="dayCard"></section>
-          <section class="card cardpad admin-only" id="settingsCard"></section>
-          <section class="card cardpad manager-note">
-            <div class="section-title"><h2>Доступ керівника</h2></div>
-            <div class="locknote">Ви можете переглядати календар і змінювати тільки місячну планку тестів. Фактичну кількість тестів та робочий графік редагує власник профілю.</div>
-          </section>
-        </aside>
+          <div class="week"><div>Пн</div><div>Вт</div><div>Ср</div><div>Чт</div><div>Пт</div><div>Сб</div><div>Нд</div></div>
+          <div class="days clean-days" id="calendarDays"></div>
+
+          <div class="calendar-legend">
+            <span><i class="legend-dot qa"></i>QA</span>
+            <span><i class="legend-dot azs"></i>АЗС</span>
+            <span><i class="legend-dot off"></i>QA OFF</span>
+            <span class="legend-note">Натисни на дату, щоб переглянути день</span>
+          </div>
+        </section>
       </section>
-    </main>`;
+    </main>
+    <div id="modalRoot"></div>`;
   finishBoot();
 }
 
-
-function renderStats() {
-  const metric = metricForMonth();
-  const absences = absencesForMonth();
-  const worked = workCountsForMonth();
-  const progress = metric.target > 0 ? Math.min(100, Math.round(metric.completed / metric.target * 100)) : 0;
-  $('#stats').innerHTML = `
-    <div class="stat"><div class="label">QA відпрацьовано</div><div class="value">${worked.qa}</div><div class="sub">днів у ${esc(monthName(viewDate))}</div></div>
-    <div class="stat"><div class="label">АЗС відпрацьовано</div><div class="value">${worked.azs}</div><div class="sub">змін / днів</div></div>
-    <div class="stat"><div class="label">Тести / місяць</div><div class="value">${metric.completed || 0}</div><div class="sub">ціль ${metric.target || '—'}</div><div class="progress"><i style="width:${progress}%"></i></div></div>
-    <div class="stat"><div class="label">QA OFF</div><div class="value">${absences.length}</div><div class="sub">запланованих конфліктів</div></div>`;
+function renderSummary() {
+  const s = monthStats();
+  const progress = s.target > 0 ? Math.min(100, Math.round(s.tests / s.target * 100)) : 0;
+  const targetClickable = user.role === 'manager' ? 'summary-action' : '';
+  $('#monthSummary').innerHTML = `
+    <div class="summary-item"><span>QA</span><b>${s.qa}</b></div>
+    <div class="summary-item"><span>АЗС</span><b>${s.azs}</b></div>
+    <div class="summary-item"><span>Тести</span><b>${s.tests}</b></div>
+    <button class="summary-item ${targetClickable}" id="targetSummary" type="button" ${user.role === 'manager' ? '' : 'disabled'}>
+      <span>План</span><b>${s.target || '—'}</b>${user.role === 'manager' ? '<em>змінити</em>' : ''}
+    </button>
+    <div class="summary-progress" aria-label="Прогрес тестів"><i style="width:${progress}%"></i></div>`;
+  $('#targetSummary')?.addEventListener('click', () => {
+    if (user.role === 'manager') openTargetModal();
+  });
 }
 
 function renderCalendar() {
@@ -195,225 +177,292 @@ function renderCalendar() {
   const mondayOffset = (first.getDay() + 6) % 7;
   const start = new Date(year, month, 1 - mondayOffset);
   const today = isoDate(new Date());
-  const absenceSet = new Set(absencesForMonth().map(a => a.date));
+  const offSet = absenceSetForMonth();
   let html = '';
+
   for (let i = 0; i < 42; i++) {
     const d = new Date(start);
     d.setDate(start.getDate() + i);
     const date = isoDate(d);
     const inMonth = d.getMonth() === month;
-    const shifts = shiftsForDate(date);
-    const worked = workForDate(date);
-    const off = absenceSet.has(date);
-    html += `<button class="day ${!inMonth?'out':''} ${date===today?'today':''} ${date===selected?'selected':''}" data-date="${date}">
+    const detail = detailForDate(date);
+    const qa = detail.types.includes('qa');
+    const azs = detail.types.includes('azs');
+    const off = offSet.has(date);
+    html += `<button class="day clean-day ${!inMonth?'out':''} ${date===today?'today':''}" data-date="${date}" aria-label="${esc(shortDate(date))}">
       <span class="daynum">${d.getDate()}</span>
-      <span class="dots">
-        ${worked.includes('qa') ? '<span class="dot qa-work">QA</span>' : ''}
-        ${worked.includes('azs') ? '<span class="dot azs-work">АЗС</span>' : ''}
-        ${shifts.length ? `<span class="dot planned">план ${esc(shifts[0].start || state.settings.shiftStart)}</span>` : ''}
-        ${off ? '<span class="dot off">QA OFF</span>' : ''}
+      ${detail.tests > 0 ? `<span class="test-mini">${detail.tests}</span>` : ''}
+      <span class="day-marks">
+        ${qa ? '<i class="mark qa" title="QA"></i>' : ''}
+        ${azs ? '<i class="mark azs" title="АЗС"></i>' : ''}
+        ${off ? '<i class="mark off" title="QA OFF"></i>' : ''}
       </span>
     </button>`;
   }
   $('#calendarDays').innerHTML = html;
-  $$('.day').forEach(btn => btn.addEventListener('click', () => {
+  $$('.day[data-date]').forEach(btn => btn.addEventListener('click', () => {
     selected = btn.dataset.date;
-    const d = new Date(`${selected}T12:00:00`);
-    if (d.getMonth() !== viewDate.getMonth() || d.getFullYear() !== viewDate.getFullYear()) {
-      viewDate = new Date(d.getFullYear(), d.getMonth(), 1);
-      refreshMonth();
+    const clicked = new Date(`${selected}T12:00:00`);
+    const changedMonth = clicked.getMonth() !== viewDate.getMonth() || clicked.getFullYear() !== viewDate.getFullYear();
+    if (changedMonth) {
+      viewDate = new Date(clicked.getFullYear(), clicked.getMonth(), 1);
+      refreshMonth().then(() => openDayModal(selected));
     } else {
-      renderCalendar();
-      renderDayCard();
+      openDayModal(selected);
     }
   }));
 }
 
-function renderTests() {
-  const metric = metricForMonth();
-  const setter = metric.targetSetBy?.name ? ` · ${esc(metric.targetSetBy.name)}` : '';
-  const adminEditor = user.role === 'admin' ? `
-    <div class="actions" style="margin-top:16px">
-      <button class="btn" data-inc="1">+1 тест</button>
-      <button class="btn" data-inc="5">+5</button>
-      <button class="btn ghost" id="setCompleted">Задати свою цифру</button>
-    </div>
-    <div class="locknote" style="margin-top:14px">Планку встановлює тільки керівник. Для вас вона доступна лише для перегляду.</div>` : `
-    <div class="target-editor" style="margin-top:16px">
-      <div class="field"><label>Планка на місяць</label><input class="input" id="targetValue" type="number" min="0" value="${metric.target || 0}"></div>
-      <button class="btn primary" id="saveTarget">Зберегти планку</button>
-    </div>
-    <div class="locknote" style="margin-top:14px">Виконану кількість тестів редагує тільки власник профілю.</div>`;
-  $('#testsCard').innerHTML = `
-    <div class="section-title"><h2>Monthly tests</h2><span>${esc(monthKey(viewDate))}</span></div>
-    <div class="big-num">${metric.completed || 0}<span style="font-size:18px;color:var(--muted);font-weight:500"> / ${metric.target || '—'}</span></div>
-    <div class="helper" style="margin:5px 0 0">Виконано / планка${setter}</div>
-    ${adminEditor}`;
-
-  if (user.role === 'admin') {
-    $$('[data-inc]').forEach(btn => btn.addEventListener('click', async () => {
-      await action('incrementTests', { month:monthKey(viewDate), delta:Number(btn.dataset.inc) });
-    }));
-    $('#setCompleted')?.addEventListener('click', async () => {
-      const current = metricForMonth().completed || 0;
-      const v = prompt('Скільки тестів виконано цього місяця?', current);
-      if (v == null) return;
-      await action('setTestsCompleted', { month:monthKey(viewDate), value:Number(v) });
-    });
-  } else {
-    $('#saveTarget')?.addEventListener('click', async () => {
-      await action('setTestTarget', { month:monthKey(viewDate), value:Number($('#targetValue').value || 0) });
-      toast('Планку збережено');
-    });
+function toggleModalType(type) {
+  const btn = $(`[data-type="${type}"]`, $('#dayModal'));
+  if (!btn || btn.disabled) return;
+  btn.classList.toggle('active');
+  const any = $$('[data-type].active', $('#dayModal')).map(x => x.dataset.type);
+  const start = $('#dayStart');
+  const end = $('#dayEnd');
+  if (any.length === 1 && !start.value && !end.value) {
+    if (any[0] === 'qa') { start.value = '09:00'; end.value = '18:00'; }
+    if (any[0] === 'azs') { start.value = state.settings.shiftStart || '08:00'; end.value = state.settings.shiftStart || '08:00'; }
   }
 }
 
-function renderDayCard() {
-  const shifts = shiftsForDate(selected);
-  const worked = workForDate(selected);
+function openDayModal(date) {
+  selected = date;
+  const d = detailForDate(date);
   const editable = user.role === 'admin';
-  const shift = shifts[0];
-  const workedLabel = worked.length ? worked.map(v => v === 'qa' ? 'QA' : 'АЗС').join(' + ') : 'не відмічено';
-  $('#dayCard').innerHTML = `
-    <div class="section-title"><h2>${esc(humanDate(selected))}</h2><span>${esc(workedLabel)}</span></div>
-    ${editable ? `
-      <div class="work-picker" role="group" aria-label="Відпрацьований день">
-        <button class="work-choice ${worked.includes('qa')?'active':''}" data-work="qa" type="button"><b>QA</b><span>відпрацював у QA</span></button>
-        <button class="work-choice ${worked.includes('azs')?'active':''}" data-work="azs" type="button"><b>АЗС</b><span>відпрацював на АЗС</span></button>
-      </div>
-      <button class="btn ghost clear-work" id="clearWork" type="button" ${worked.length?'':'disabled'}>Очистити позначку</button>
-      <div class="day-divider"></div>
-      <div class="helper" style="margin-bottom:10px">Нижче — планова зміна АЗС. Вона використовується для автоматичного QA OFF та Telegram-сповіщень і не залежить від фактичної позначки вище.</div>
-      <div class="formrow">
-        <div class="field"><label>Старт</label><input id="shiftStart" class="input" type="time" value="${esc(shift?.start || state.settings.shiftStart || '08:00')}"></div>
-        <div class="field"><label>Тривалість, год</label><input id="shiftDuration" class="input" type="number" min="1" max="48" value="${esc(shift?.durationHours || state.settings.shiftDurationHours || 24)}"></div>
-      </div>
-      <div class="field" style="margin-bottom:12px"><label>Нотатка</label><input id="shiftNote" class="input" maxlength="120" value="${esc(shift?.note || '')}" placeholder="необов'язково"></div>
-      <div class="actions">
-        ${shift ? '<button class="btn danger" id="removeShift">Видалити планову зміну</button>' : '<button class="btn primary" id="addShift">Запланувати зміну</button>'}
-      </div>` : `
-      <div class="worked-readonly">${worked.length ? `Відпрацьовано: <strong>${esc(workedLabel)}</strong>` : 'Фактична робота на цю дату ще не відмічена.'}</div>
-      <div class="helper" style="margin-top:10px">${shift ? `Планова зміна АЗС: ${esc(shift.start)} · ${esc(shift.durationHours)} год.` : 'Планова зміна АЗС відсутня.'}</div>`}`;
+  const off = absenceSetForMonth().has(date);
+  const title = humanDate(date);
+  const testsLabel = d.tests ? `${d.tests} тестів` : 'тести не внесені';
 
-  $$('[data-work]').forEach(btn => btn.addEventListener('click', async () => {
-    const type = btn.dataset.work;
-    const next = new Set(workForDate(selected));
-    if (next.has(type)) next.delete(type); else next.add(type);
-    await action('setWorkDay', { date:selected, types:[...next] });
-  }));
-  $('#clearWork')?.addEventListener('click', async () => {
-    await action('setWorkDay', { date:selected, types:[] });
-  });
-  $('#addShift')?.addEventListener('click', async () => {
-    await action('addShift', { date:selected, start:$('#shiftStart').value, durationHours:Number($('#shiftDuration').value), note:$('#shiftNote').value });
-    toast('Зміну заплановано');
-  });
-  $('#removeShift')?.addEventListener('click', async () => {
-    if (!confirm('Видалити планову зміну АЗС?')) return;
-    await action('removeShift', { id:shift.id });
-    toast('Планову зміну видалено');
-  });
-}
+  $('#modalRoot').innerHTML = `
+    <div class="modal-backdrop" id="dayModal" role="dialog" aria-modal="true" aria-labelledby="dayModalTitle">
+      <section class="modal-sheet">
+        <div class="modal-head">
+          <div><span class="modal-kicker">${esc(shortDate(date))}</span><h2 id="dayModalTitle">${esc(title)}</h2></div>
+          <button class="modal-close" type="button" data-close-modal aria-label="Закрити">×</button>
+        </div>
 
-function renderSettings() {
-  if (user.role !== 'admin') return;
-  const s = state.settings;
-  $('#settingsCard').innerHTML = `
-    <div class="section-title"><h2>Робоча логіка</h2><span>Admin</span></div>
-    <div class="formrow">
-      <div class="field"><label>АЗС старт</label><input id="setShiftStart" class="input" type="time" value="${esc(s.shiftStart)}"></div>
-      <div class="field"><label>АЗС, год</label><input id="setDuration" class="input" type="number" min="1" max="48" value="${esc(s.shiftDurationHours)}"></div>
-    </div>
-    <div class="formrow">
-      <div class="field"><label>Recovery, год</label><input id="setRecovery" class="input" type="number" min="0" max="48" value="${esc(s.recoveryHours || 0)}"></div>
-      <div class="field"><label>Notify hour</label><input id="setNotify" class="input" type="time" step="3600" value="${esc((s.notifyAt || '19:00').slice(0,3)+'00')}"></div>
-    </div>
-    <div class="section-title" style="margin-top:16px"><h2>QA графік</h2><span>по днях</span></div>
-    <div class="list" id="qaRows">
-      ${WEEK_KEYS.map(k => { const q=s.qa[k]; return `<div class="rowitem"><label style="display:flex;align-items:center;gap:8px;min-width:58px"><input data-qa-enabled="${k}" type="checkbox" ${q.enabled?'checked':''}> ${WEEK_LABELS[k]}</label><div style="display:flex;gap:6px"><input data-qa-start="${k}" class="input" style="width:96px" type="time" value="${esc(q.start)}"><input data-qa-end="${k}" class="input" style="width:96px" type="time" value="${esc(q.end)}"></div></div>` }).join('')}
-    </div>
-    <button class="btn primary" id="saveSettings" style="margin-top:12px">Зберегти графік</button>`;
-  $('#saveSettings').addEventListener('click', async () => {
-    const qa = {};
-    WEEK_KEYS.forEach(k => qa[k] = {
-      enabled:$(`[data-qa-enabled="${k}"]`).checked,
-      start:$(`[data-qa-start="${k}"]`).value,
-      end:$(`[data-qa-end="${k}"]`).value
+        <div class="modal-body">
+          <div class="modal-section">
+            <label class="modal-label">Робота</label>
+            <div class="type-picker">
+              <button class="type-choice ${d.types.includes('qa')?'active':''}" data-type="qa" type="button" ${editable?'':'disabled'}><i></i><b>QA</b></button>
+              <button class="type-choice ${d.types.includes('azs')?'active':''}" data-type="azs" type="button" ${editable?'':'disabled'}><i></i><b>АЗС</b></button>
+            </div>
+            ${off ? '<div class="modal-alert">Цей день перетинається з плановою зміною АЗС → QA OFF</div>' : ''}
+          </div>
+
+          <div class="modal-section">
+            <label class="modal-label">Графік дня</label>
+            <div class="time-grid">
+              <label><span>Початок</span><input id="dayStart" class="modal-input" type="time" value="${esc(d.start)}" ${editable?'':'disabled'}></label>
+              <label><span>Кінець</span><input id="dayEnd" class="modal-input" type="time" value="${esc(d.end)}" ${editable?'':'disabled'}></label>
+            </div>
+          </div>
+
+          <div class="modal-section">
+            <label class="modal-label" for="dayTests">Виконані тести</label>
+            <div class="tests-editor ${editable?'editable':''}">
+              <input id="dayTests" type="number" min="0" max="9999" inputmode="numeric" value="${d.tests || 0}" ${editable?'':'disabled'} aria-label="Кількість виконаних тестів">
+              <span>${editable ? 'натисни на цифру, щоб виправити' : esc(testsLabel)}</span>
+            </div>
+          </div>
+
+          <div class="modal-section note-section">
+            <label class="modal-label" for="dayNote">Нотатка <small>необов’язково</small></label>
+            <textarea id="dayNote" class="modal-input modal-note" maxlength="120" placeholder="Коротко про день" ${editable?'':'disabled'}>${esc(d.note)}</textarea>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          ${editable ? '<button class="btn danger-quiet" id="clearDay" type="button">Очистити день</button><button class="btn primary modal-save" id="saveDay" type="button">Зберегти</button>' : '<button class="btn primary modal-save" data-close-modal type="button">Готово</button>'}
+        </div>
+      </section>
+    </div>`;
+
+  const root = $('#dayModal');
+  $$('[data-close-modal]', root).forEach(el => el.addEventListener('click', closeModal));
+  root.addEventListener('click', e => { if (e.target === root) closeModal(); });
+  document.addEventListener('keydown', modalEscape, { once:true });
+
+  if (editable) {
+    $$('[data-type]', root).forEach(btn => btn.addEventListener('click', () => toggleModalType(btn.dataset.type)));
+    $('#dayTests')?.addEventListener('focus', e => e.target.select());
+    $('#clearDay')?.addEventListener('click', async () => {
+      if (!confirm('Очистити всі дані цього дня?')) return;
+      await saveDayDetails({ types:[], start:'', end:'', tests:0, note:'' });
     });
-    await action('setSettings', {
-      shiftStart:$('#setShiftStart').value,
-      shiftDurationHours:Number($('#setDuration').value),
-      recoveryHours:Number($('#setRecovery').value),
-      notifyAt:$('#setNotify').value.slice(0,3)+'00',
-      qa
+    $('#saveDay')?.addEventListener('click', async () => {
+      const types = $$('[data-type].active', root).map(x => x.dataset.type);
+      await saveDayDetails({
+        types,
+        start:$('#dayStart').value,
+        end:$('#dayEnd').value,
+        tests:Number($('#dayTests').value || 0),
+        note:$('#dayNote').value
+      });
     });
-    toast('Графік оновлено');
-  });
+  }
 }
 
-function renderReport() {
-  const list = absencesForMonth();
-  $('#reportCount').textContent = `${list.length} дн.`;
-  const title = `QA availability · ${monthName(viewDate)}`;
-  const body = list.length
-    ? list.map(a => `• ${humanDate(a.date)} — відсутній ${a.qaStart}–${a.qaEnd}`).join('\n')
-    : 'Конфліктів із QA-графіком немає.';
-  $('#reportText').textContent = `${title}\n${body}`;
+function modalEscape(e) {
+  if (e.key === 'Escape') closeModal();
 }
 
-async function action(type, payload) {
+function closeModal() {
+  $('#modalRoot').innerHTML = '';
+}
+
+async function saveDayDetails(payload) {
   try {
-    const data = await api('/api/action', { method:'POST', body:JSON.stringify({ type, payload }) });
-    state = { ...state, ...data.state, computed:state.computed };
+    const result = await api('/api/action', {
+      method:'POST',
+      body:JSON.stringify({ type:'setDayDetails', payload:{ date:selected, ...payload } })
+    });
+    state = result.state;
+    localStorage.setItem('hodynnyk:last-state', JSON.stringify(state));
+    await refreshMonth(false);
+    closeModal();
+    toast('День збережено');
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+function openTargetModal() {
+  const target = monthTarget();
+  $('#modalRoot').innerHTML = `
+    <div class="modal-backdrop" id="targetModal" role="dialog" aria-modal="true">
+      <section class="modal-sheet compact-modal">
+        <div class="modal-head"><div><span class="modal-kicker">${esc(monthName(viewDate))}</span><h2>Планка тестів</h2></div><button class="modal-close" data-close-modal type="button">×</button></div>
+        <div class="modal-body"><div class="target-big"><input id="targetValue" type="number" min="0" max="99999" inputmode="numeric" value="${target}"><span>тестів за місяць</span></div></div>
+        <div class="modal-actions"><button class="btn primary modal-save" id="saveTarget" type="button">Зберегти планку</button></div>
+      </section>
+    </div>`;
+  $$('[data-close-modal]').forEach(el => el.addEventListener('click', closeModal));
+  $('#targetValue').focus(); $('#targetValue').select();
+  $('#saveTarget').addEventListener('click', async () => {
+    try {
+      const d = await api('/api/action', { method:'POST', body:JSON.stringify({ type:'setTestTarget', payload:{ month:monthKey(viewDate), value:Number($('#targetValue').value || 0) } }) });
+      state = d.state;
+      closeModal(); renderSummary(); toast('Планку збережено');
+    } catch (e) { toast(e.message); }
+  });
+}
+
+async function refreshMonth(fetchState = true) {
+  if (fetchState) {
+    const d = await api(`/api/state?month=${encodeURIComponent(monthKey(viewDate))}`);
+    user = d.user;
+    state = d.state;
+    localStorage.setItem('hodynnyk:last-state', JSON.stringify(state));
+  } else {
+    const d = await api(`/api/state?month=${encodeURIComponent(monthKey(viewDate))}`);
+    user = d.user;
+    state = d.state;
+    localStorage.setItem('hodynnyk:last-state', JSON.stringify(state));
+  }
+  renderSummary();
+  renderCalendar();
+}
+
+function setupEvents() {
+  $('#prevMonth').addEventListener('click', async () => {
+    viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth()-1, 1);
     await refreshMonth();
-  } catch (e) {
-    toast(e.message);
-  }
-}
-
-async function refreshMonth() {
-  try {
-    const data = await api(`/api/state?month=${encodeURIComponent(monthKey(viewDate))}`);
-    state = data.state;
-    user = data.user;
-    renderStats();
-    renderCalendar();
-    renderTests();
-    renderDayCard();
-    renderSettings();
-    renderReport();
-  } catch (e) {
-    if (e.status === 401) loginScreen();
-    else toast(e.message);
-  }
-}
-
-function bindStaticEvents() {
-  $('#prevMonth').addEventListener('click', () => { viewDate.setMonth(viewDate.getMonth()-1); refreshMonth(); });
-  $('#nextMonth').addEventListener('click', () => { viewDate.setMonth(viewDate.getMonth()+1); refreshMonth(); });
-  $('#todayMonth').addEventListener('click', () => { viewDate = new Date(); viewDate.setDate(1); selected = isoDate(new Date()); refreshMonth(); });
-  $('#copyReport').addEventListener('click', async () => { await navigator.clipboard.writeText($('#reportText').textContent); toast('Звіт скопійовано'); });
-  $('#shareReport').addEventListener('click', async () => {
-    const text = $('#reportText').textContent;
-    if (navigator.share) await navigator.share({ title:'Hodynnyk · QA availability', text }).catch(()=>{});
-    else { await navigator.clipboard.writeText(text); toast('Звіт скопійовано'); }
   });
+  $('#nextMonth').addEventListener('click', async () => {
+    viewDate = new Date(viewDate.getFullYear(), viewDate.getMonth()+1, 1);
+    await refreshMonth();
+  });
+  $('#todayMonth').addEventListener('click', async () => {
+    const now = new Date(); viewDate = new Date(now.getFullYear(), now.getMonth(), 1); selected = isoDate(now);
+    await refreshMonth();
+  });
+  $('#exportExcel').addEventListener('click', exportCurrentMonthXlsx);
+}
+
+// Minimal dependency-free XLSX writer (ZIP store + inline strings).
+function crc32(bytes) {
+  if (!crc32.table) {
+    crc32.table = Array.from({length:256}, (_, n) => {
+      let c=n; for(let k=0;k<8;k++) c=(c&1)?(0xedb88320^(c>>>1)):(c>>>1); return c>>>0;
+    });
+  }
+  let c=0xffffffff; for(const b of bytes) c=crc32.table[(c^b)&255]^(c>>>8); return (c^0xffffffff)>>>0;
+}
+function le16(n){return Uint8Array.of(n&255,(n>>>8)&255)}
+function le32(n){return Uint8Array.of(n&255,(n>>>8)&255,(n>>>16)&255,(n>>>24)&255)}
+function joinBytes(parts){const len=parts.reduce((a,b)=>a+b.length,0),out=new Uint8Array(len);let o=0;for(const p of parts){out.set(p,o);o+=p.length}return out}
+function zipStore(files) {
+  const enc = new TextEncoder(), locals=[], centrals=[]; let offset=0;
+  for (const file of files) {
+    const name=enc.encode(file.name), data=typeof file.data==='string'?enc.encode(file.data):file.data, crc=crc32(data);
+    const local=joinBytes([le32(0x04034b50),le16(20),le16(0),le16(0),le16(0),le16(0),le32(crc),le32(data.length),le32(data.length),le16(name.length),le16(0),name,data]);
+    locals.push(local);
+    const central=joinBytes([le32(0x02014b50),le16(20),le16(20),le16(0),le16(0),le16(0),le16(0),le32(crc),le32(data.length),le32(data.length),le16(name.length),le16(0),le16(0),le16(0),le16(0),le32(0),le32(offset),name]);
+    centrals.push(central); offset += local.length;
+  }
+  const centralSize=centrals.reduce((a,b)=>a+b.length,0);
+  const end=joinBytes([le32(0x06054b50),le16(0),le16(0),le16(files.length),le16(files.length),le32(centralSize),le32(offset),le16(0)]);
+  return joinBytes([...locals,...centrals,end]);
+}
+function xmlEsc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]))}
+function colName(n){let s='';while(n>0){n--;s=String.fromCharCode(65+n%26)+s;n=Math.floor(n/26)}return s}
+function xlsxCell(value,row,col,style=0){const ref=`${colName(col)}${row}`;if(typeof value==='number'&&Number.isFinite(value))return `<c r="${ref}" s="${style}"><v>${value}</v></c>`;return `<c r="${ref}" t="inlineStr" s="${style}"><is><t>${xmlEsc(value)}</t></is></c>`}
+function buildXlsx(rows) {
+  const sheetRows = rows.map((row,ri)=>`<row r="${ri+1}">${row.map((v,ci)=>xlsxCell(v,ri+1,ci+1,ri===0?1:0)).join('')}</row>`).join('');
+  const sheet=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><dimension ref="A1:H${rows.length}"/><cols><col min="1" max="1" width="13" customWidth="1"/><col min="2" max="2" width="14" customWidth="1"/><col min="3" max="3" width="16" customWidth="1"/><col min="4" max="5" width="11" customWidth="1"/><col min="6" max="6" width="10" customWidth="1"/><col min="7" max="7" width="34" customWidth="1"/><col min="8" max="8" width="12" customWidth="1"/></cols><sheetData>${sheetRows}</sheetData><autoFilter ref="A1:H${rows.length}"/></worksheet>`;
+  const workbook=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Hodynnyk" sheetId="1" r:id="rId1"/></sheets></workbook>`;
+  const styles=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFEADBBF"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="1" borderId="0" xfId="0" applyFont="1" applyFill="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
+  const types=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`;
+  const rootRels=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`;
+  const wbRels=`<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`;
+  return zipStore([
+    {name:'[Content_Types].xml',data:types},{name:'_rels/.rels',data:rootRels},{name:'xl/workbook.xml',data:workbook},{name:'xl/_rels/workbook.xml.rels',data:wbRels},{name:'xl/worksheets/sheet1.xml',data:sheet},{name:'xl/styles.xml',data:styles}
+  ]);
+}
+
+function exportCurrentMonthXlsx() {
+  const key = monthKey(viewDate);
+  const [year, month] = key.split('-').map(Number);
+  const days = new Date(year, month, 0).getDate();
+  const offSet = absenceSetForMonth();
+  const rows = [['Дата','День','Робота','Початок','Кінець','Тести','Нотатка','QA статус']];
+  const weekdays = new Intl.DateTimeFormat('uk-UA',{weekday:'long'});
+  for (let day=1; day<=days; day++) {
+    const date = `${year}-${pad(month)}-${pad(day)}`;
+    const d = detailForDate(date);
+    if (!d.types.length && !d.tests && !d.start && !d.end && !d.note && !offSet.has(date)) continue;
+    const work = d.types.map(t=>t==='qa'?'QA':'АЗС').join(' + ');
+    rows.push([date, weekdays.format(new Date(`${date}T12:00:00`)), work, d.start, d.end, d.tests || 0, d.note, offSet.has(date)?'QA OFF':'']);
+  }
+  if (rows.length === 1) rows.push([`${key}`, '', 'Даних за місяць ще немає', '', '', 0, '', '']);
+  rows.push(['','','','','','', '', '']);
+  const s = monthStats();
+  rows.push(['Підсумок','','QA днів',s.qa,'АЗС днів',s.azs,'Тести',s.tests]);
+  rows.push(['План тестів',s.target || 0,'','','','','','']);
+
+  const bytes = buildXlsx(rows);
+  const blob = new Blob([bytes], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `hodynnyk-${key}.xlsx`; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1500);
+  toast('Excel-файл збережено');
 }
 
 async function boot() {
   try {
     config = await api('/api/config');
-    const data = await api(`/api/state?month=${encodeURIComponent(monthKey(viewDate))}`);
-    user = data.user;
-    state = data.state;
-    renderShell();
-    bindStaticEvents();
-    renderStats(); renderCalendar(); renderTests(); renderDayCard(); renderSettings(); renderReport();
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(()=>{});
-  } catch (e) {
-    if (e.status === 401) loginScreen();
-    else if (e.status === 403) loginScreen(`Telegram акаунт не має доступу. ID: ${e.data?.user?.id || '—'}`);
-    else loginScreen(`Помилка запуску: ${e.message}`);
+    const d = await api(`/api/state?month=${encodeURIComponent(monthKey(viewDate))}`);
+    user = d.user; state = d.state;
+    localStorage.setItem('hodynnyk:last-state', JSON.stringify(state));
+    renderShell(); renderSummary(); renderCalendar(); setupEvents();
+  } catch (error) {
+    if (error.status === 401) return loginScreen();
+    if (error.status === 403) return loginScreen('Цей Telegram-акаунт ще не має доступу до календаря.');
+    loginScreen(`Помилка підключення: ${error.message}`);
   }
 }
 

@@ -108,7 +108,7 @@ function localParts(timeZone = 'Europe/Kyiv', now = new Date()) {
 
 function defaultState() {
   return {
-    version: 2,
+    version: 4,
     settings: {
       timeZone: 'Europe/Kyiv',
       shiftStart: '08:00',
@@ -130,6 +130,7 @@ function defaultState() {
     managers: [],
     metrics: {},
     workLog: {},
+    dayDetails: {},
     notificationLog: []
   };
 }
@@ -146,6 +147,7 @@ function sanitizeState(raw) {
     managers: Array.isArray(raw.managers) ? raw.managers.slice(-50) : [],
     metrics: raw.metrics && typeof raw.metrics === 'object' ? raw.metrics : {},
     workLog: raw.workLog && typeof raw.workLog === 'object' ? raw.workLog : {},
+    dayDetails: raw.dayDetails && typeof raw.dayDetails === 'object' ? raw.dayDetails : {},
     notificationLog: Array.isArray(raw.notificationLog) ? raw.notificationLog.slice(-300) : []
   };
 }
@@ -200,6 +202,7 @@ function publicStateForRole(state, role) {
     shifts: state.shifts,
     metrics: state.metrics,
     workLog: state.workLog,
+    dayDetails: state.dayDetails,
     computed: {
       monthAbsences: {}
     }
@@ -370,10 +373,54 @@ async function handleAction(request, env, user, state) {
   const body = await request.json().catch(() => null);
   const type = body?.type;
   const p = body?.payload || {};
-  const adminOnly = new Set(['addShift','removeShift','setWorkDay','setSettings','setTestsCompleted','incrementTests','addRecipient','updateRecipient','removeRecipient','addManager','updateManager','removeManager','clearLogs']);
+  const adminOnly = new Set(['addShift','removeShift','setWorkDay','setDayDetails','setSettings','addRecipient','updateRecipient','removeRecipient','addManager','updateManager','removeManager','clearLogs']);
   if (adminOnly.has(type) && !requireRole(user, ['admin'])) return json({ ok: false, error: 'Forbidden' }, 403);
   if (type === 'setTestTarget' && !requireRole(user, ['manager'])) return json({ ok: false, error: 'Only manager can set the monthly target' }, 403);
 
+
+  if (type === 'setDayDetails') {
+    if (!validateDate(p.date)) return json({ ok:false,error:'Invalid date' },400);
+    const allowed = new Set(['qa','azs']);
+    const types = Array.isArray(p.types) ? [...new Set(p.types.map(String).filter(v => allowed.has(v)))] : [];
+    const tests = Math.max(0, Math.min(9999, Math.floor(Number(p.tests || 0))));
+    const start = validateTime(p.start) ? p.start : '';
+    const end = validateTime(p.end) ? p.end : '';
+    const note = cleanText(p.note, 120);
+
+    if (types.length) state.workLog[p.date] = types; else delete state.workLog[p.date];
+    if (types.length || tests || start || end || note) {
+      state.dayDetails[p.date] = { types, tests, start, end, note, updatedAt:new Date().toISOString() };
+    } else {
+      delete state.dayDetails[p.date];
+    }
+
+    // Calendar is the source of truth for AЗС notifications. Marking a day as AЗС
+    // creates/updates its planned shift; removing AЗС removes the shift for that date.
+    if (types.includes('azs')) {
+      const shiftStart = start || state.settings.shiftStart || '08:00';
+      const shiftEnd = end || shiftStart;
+      const startMs = naiveLocalMs(p.date, shiftStart);
+      let endMs = naiveLocalMs(p.date, shiftEnd);
+      if (endMs <= startMs) endMs += 86400000;
+      const durationHours = Math.max(1, Math.min(48, (endMs - startMs) / 3600000));
+      const existing = state.shifts.find(s => s.date === p.date);
+      const nextShift = {
+        id: existing?.id || crypto.randomUUID(),
+        date: p.date,
+        start: shiftStart,
+        durationHours,
+        note,
+        source: 'calendar',
+        createdAt: existing?.createdAt || new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      state.shifts = state.shifts.filter(s => s.date !== p.date);
+      state.shifts.push(nextShift);
+      state.shifts.sort((a,b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start));
+    } else {
+      state.shifts = state.shifts.filter(s => s.date !== p.date);
+    }
+  }
 
   if (type === 'setWorkDay') {
     if (!validateDate(p.date)) return json({ ok:false,error:'Invalid date' },400);
@@ -416,15 +463,11 @@ async function handleAction(request, env, user, state) {
     }
   }
 
-  if (type === 'setTestsCompleted' || type === 'incrementTests' || type === 'setTestTarget') {
+  if (type === 'setTestTarget') {
     const month = /^\d{4}-\d{2}$/.test(p.month || '') ? p.month : monthKey(localParts(state.settings.timeZone).date);
     const metric = state.metrics[month] || { completed: 0, target: 0, targetSetBy: null, updatedAt: null };
-    if (type === 'setTestsCompleted') metric.completed = Math.max(0, Math.floor(Number(p.value || 0)));
-    if (type === 'incrementTests') metric.completed = Math.max(0, Math.floor(metric.completed + Number(p.delta || 0)));
-    if (type === 'setTestTarget') {
-      metric.target = Math.max(0, Math.floor(Number(p.value || 0)));
-      metric.targetSetBy = { id: String(user.id), name: user.name || user.username || user.id, role: user.role };
-    }
+    metric.target = Math.max(0, Math.floor(Number(p.value || 0)));
+    metric.targetSetBy = { id: String(user.id), name: user.name || user.username || user.id, role: user.role };
     metric.updatedAt = new Date().toISOString();
     state.metrics[month] = metric;
   }
@@ -653,8 +696,8 @@ export default {
       if (privateResponse) return privateResponse;
     }
 
-    if (path === '/api/health') return json({ ok:true, app:'hodynnyk-calendar', version:'0.2.1' });
-    if (path === '/api/config') return json({ ok:true, authConfigured:authConfigured(env), app:'Hodynnyk', version:'0.2.1', botUsername:String(env.TELEGRAM_BOT_USERNAME || '') });
+    if (path === '/api/health') return json({ ok:true, app:'hodynnyk-calendar', version:'0.3.0' });
+    if (path === '/api/config') return json({ ok:true, authConfigured:authConfigured(env), app:'Hodynnyk', version:'0.3.0', botUsername:String(env.TELEGRAM_BOT_USERNAME || '') });
     if (path === '/api/auth/login') return telegramOidcLogin(request, env);
     if (path === '/api/auth/callback') {
       try { return await telegramOidcCallback(request, env, ctx); }
