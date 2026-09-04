@@ -108,7 +108,7 @@ function localParts(timeZone = 'Europe/Kyiv', now = new Date()) {
 
 function defaultState() {
   return {
-    version: 1,
+    version: 2,
     settings: {
       timeZone: 'Europe/Kyiv',
       shiftStart: '08:00',
@@ -129,6 +129,7 @@ function defaultState() {
     recipients: [],
     managers: [],
     metrics: {},
+    workLog: {},
     notificationLog: []
   };
 }
@@ -144,6 +145,7 @@ function sanitizeState(raw) {
     recipients: Array.isArray(raw.recipients) ? raw.recipients.slice(-100) : [],
     managers: Array.isArray(raw.managers) ? raw.managers.slice(-50) : [],
     metrics: raw.metrics && typeof raw.metrics === 'object' ? raw.metrics : {},
+    workLog: raw.workLog && typeof raw.workLog === 'object' ? raw.workLog : {},
     notificationLog: Array.isArray(raw.notificationLog) ? raw.notificationLog.slice(-300) : []
   };
 }
@@ -197,6 +199,7 @@ function publicStateForRole(state, role) {
     settings: state.settings,
     shifts: state.shifts,
     metrics: state.metrics,
+    workLog: state.workLog,
     computed: {
       monthAbsences: {}
     }
@@ -236,6 +239,32 @@ async function sendTelegram(env, chatId, text) {
 function notificationText(absence) {
   const [y,m,d] = absence.date.split('-');
   return `Hodynnyk · QA availability\nЗавтра, ${d}.${m}.${y}, я буду відсутній на QA.\nНедоступність: ${absence.qaStart}–${absence.qaEnd}.`;
+}
+
+function tomorrowShiftText(date, shift, absence) {
+  const [y,m,d] = date.split('-');
+  const details = [
+    `Hodynnyk · зміна на завтра`,
+    `Завтра, ${d}.${m}.${y}, у мене зміна на АЗС.`,
+    `Початок: ${shift.start || '08:00'} · тривалість: ${shift.durationHours || 24} год.`
+  ];
+  if (absence) details.push(`QA: відсутній ${absence.qaStart}–${absence.qaEnd}.`);
+  if (shift.note) details.push(`Нотатка: ${shift.note}`);
+  return details.join('\n');
+}
+
+function loginNotificationText(user, role, timeZone = 'Europe/Kyiv') {
+  const when = new Intl.DateTimeFormat('uk-UA', {
+    timeZone, day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit', hourCycle:'h23'
+  }).format(new Date());
+  const roleLabel = role === 'admin' ? 'Admin' : role === 'manager' ? 'Керівник' : 'Без доступу';
+  return [
+    'Hodynnyk · вхід на платформу',
+    `Користувач: ${user.name || user.username || user.id}`,
+    `Telegram ID: ${user.id}`,
+    `Роль: ${roleLabel}`,
+    `Час: ${when}`
+  ].join('\n');
 }
 
 export class AppStore {
@@ -321,10 +350,8 @@ async function currentUser(request, env, state) {
   const session = await verifySession(cookies.hc_session, env.AUTH_SECRET);
   if (!session?.id) return null;
   const id = String(session.id);
-  let role = null;
-  if (id === String(env.ADMIN_TELEGRAM_ID)) role = 'admin';
-  else if (state.managers.some(m => String(m.telegramId) === id && m.enabled !== false)) role = 'manager';
-  if (!role) return { ...session, role: 'unauthorized' };
+  const role = roleForTelegramId(id, env, state);
+  if (role === 'unauthorized') return { ...session, role };
   return { ...session, role };
 }
 
@@ -332,13 +359,29 @@ function requireRole(user, roles) {
   return !!user && roles.includes(user.role);
 }
 
+function roleForTelegramId(id, env, state) {
+  const value = String(id || '');
+  if (value && value === String(env.ADMIN_TELEGRAM_ID || '')) return 'admin';
+  if (state.managers.some(m => String(m.telegramId) === value && m.enabled !== false)) return 'manager';
+  return 'unauthorized';
+}
+
 async function handleAction(request, env, user, state) {
   const body = await request.json().catch(() => null);
   const type = body?.type;
   const p = body?.payload || {};
-  const adminOnly = new Set(['addShift','removeShift','setSettings','setTestsCompleted','incrementTests','addRecipient','updateRecipient','removeRecipient','addManager','updateManager','removeManager','clearLogs']);
+  const adminOnly = new Set(['addShift','removeShift','setWorkDay','setSettings','setTestsCompleted','incrementTests','addRecipient','updateRecipient','removeRecipient','addManager','updateManager','removeManager','clearLogs']);
   if (adminOnly.has(type) && !requireRole(user, ['admin'])) return json({ ok: false, error: 'Forbidden' }, 403);
   if (type === 'setTestTarget' && !requireRole(user, ['manager'])) return json({ ok: false, error: 'Only manager can set the monthly target' }, 403);
+
+
+  if (type === 'setWorkDay') {
+    if (!validateDate(p.date)) return json({ ok:false,error:'Invalid date' },400);
+    const allowed = new Set(['qa','azs']);
+    const values = Array.isArray(p.types) ? [...new Set(p.types.map(String).filter(v => allowed.has(v)))] : [];
+    if (values.length) state.workLog[p.date] = values;
+    else delete state.workLog[p.date];
+  }
 
   if (type === 'addShift') {
     if (!validateDate(p.date)) return json({ ok:false,error:'Invalid date' },400);
@@ -462,7 +505,7 @@ async function verifyTelegramIdToken(idToken, clientId) {
   return payload;
 }
 
-async function telegramOidcCallback(request, env) {
+async function telegramOidcCallback(request, env, ctx) {
   const url = new URL(request.url);
   const code = url.searchParams.get('code');
   const state = url.searchParams.get('state');
@@ -491,6 +534,14 @@ async function telegramOidcCallback(request, env) {
     exp: Math.floor(Date.now()/1000) + 2592000
   };
   const session = await signSession(payload, env.AUTH_SECRET);
+  try {
+    const appState = await readState(env);
+    const role = roleForTelegramId(id, env, appState);
+    if (env.TELEGRAM_BOT_TOKEN && env.ADMIN_TELEGRAM_ID) {
+      const notifyPromise = sendTelegram(env, String(env.ADMIN_TELEGRAM_ID), loginNotificationText(payload, role, appState.settings.timeZone || 'Europe/Kyiv')).catch(() => null);
+      if (ctx?.waitUntil) ctx.waitUntil(notifyPromise); else await notifyPromise;
+    }
+  } catch {}
   return redirect(flow.returnTo || '/', { 'set-cookie': sessionCookie(session) });
 }
 
@@ -525,6 +576,42 @@ async function runNotificationCycle(env, force = false) {
   return { ok:true, tomorrow, absence, results };
 }
 
+async function sendTomorrowShiftNow(env) {
+  let state = await readState(env);
+  const local = localParts(state.settings.timeZone || 'Europe/Kyiv');
+  const tomorrow = addDays(local.date, 1);
+  const shift = state.shifts.find(s => s.date === tomorrow);
+  if (!shift) return { ok:true, skipped:'no-azs-shift', tomorrow };
+
+  const absence = absenceForDate(tomorrow, state);
+  const active = state.recipients.filter(r => r.enabled !== false);
+  if (!active.length) return { ok:true, skipped:'no-recipients', tomorrow, shift };
+
+  const text = tomorrowShiftText(tomorrow, shift, absence);
+  const results = [];
+  for (const recipient of active) {
+    try {
+      await sendTelegram(env, recipient.chatId, text);
+      state.notificationLog.push({
+        id:crypto.randomUUID(), key:`manual:${Date.now()}:${recipient.chatId}`, type:'manual-tomorrow',
+        date:tomorrow, recipientId:recipient.id, recipientName:recipient.name, chatId:recipient.chatId,
+        status:'sent', text, at:new Date().toISOString()
+      });
+      results.push({ recipient:recipient.name, status:'sent' });
+    } catch (error) {
+      state.notificationLog.push({
+        id:crypto.randomUUID(), key:`manual:${Date.now()}:${recipient.chatId}`, type:'manual-tomorrow',
+        date:tomorrow, recipientId:recipient.id, recipientName:recipient.name, chatId:recipient.chatId,
+        status:'error', error:String(error.message || error), at:new Date().toISOString()
+      });
+      results.push({ recipient:recipient.name, status:'error', error:String(error.message || error) });
+    }
+  }
+  state.notificationLog = state.notificationLog.slice(-300);
+  await writeState(env, state);
+  return { ok:true, tomorrow, shift, absence, results };
+}
+
 async function privateAdminAsset(request, env, state) {
   const url = new URL(request.url);
   const base = adminPath(env);
@@ -555,7 +642,7 @@ async function serveAsset(request, env) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -566,11 +653,11 @@ export default {
       if (privateResponse) return privateResponse;
     }
 
-    if (path === '/api/health') return json({ ok:true, app:'hodynnyk-calendar', version:'0.1.4' });
-    if (path === '/api/config') return json({ ok:true, authConfigured:authConfigured(env), app:'Hodynnyk', version:'0.1.4' });
+    if (path === '/api/health') return json({ ok:true, app:'hodynnyk-calendar', version:'0.2.1' });
+    if (path === '/api/config') return json({ ok:true, authConfigured:authConfigured(env), app:'Hodynnyk', version:'0.2.1', botUsername:String(env.TELEGRAM_BOT_USERNAME || '') });
     if (path === '/api/auth/login') return telegramOidcLogin(request, env);
     if (path === '/api/auth/callback') {
-      try { return await telegramOidcCallback(request, env); }
+      try { return await telegramOidcCallback(request, env, ctx); }
       catch (error) { return json({ ok:false,error:String(error.message || error) },401); }
     }
     if (path === '/api/auth/logout') return redirect('/', { 'set-cookie': clearSessionCookie() });
@@ -604,6 +691,10 @@ export default {
       if (path === '/api/notifications/run' && request.method === 'POST') {
         if (!requireRole(user,['admin'])) return json({ok:false,error:'Forbidden'},403);
         return json(await runNotificationCycle(env, true));
+      }
+      if (path === '/api/notifications/tomorrow' && request.method === 'POST') {
+        if (!requireRole(user,['admin'])) return json({ok:false,error:'Forbidden'},403);
+        return json(await sendTomorrowShiftNow(env));
       }
       return json({ ok:false,error:'Not found' },404);
     }

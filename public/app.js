@@ -39,19 +39,36 @@ async function api(url, options = {}) {
   return data;
 }
 
+function finishBoot() {
+  const el = $('#bootSplash');
+  if (!el) return;
+  requestAnimationFrame(() => {
+    el.classList.add('done');
+    setTimeout(() => el.remove(), 420);
+  });
+}
+
 function loginScreen(message = '') {
   $('#app').innerHTML = `
-    <main class="shell login">
-      <section class="card loginbox">
-        <div class="loginmark">H</div>
-        <h1>Hodynnyk</h1>
-        <p>${message ? esc(message) : 'Приватний календар АЗС та QA availability.'}</p>
-        <div class="actions" style="justify-content:center;margin-top:18px">
+    <main class="welcome-shell">
+      <section class="welcome-visual" aria-hidden="true">
+        <img src="/assets/hodynnyk-scene.webp" alt="">
+        <div class="welcome-glow"></div>
+      </section>
+      <section class="welcome-content">
+        <div class="brand warm-brand"><img class="brandicon" src="/icons/icon-192.png" alt=""><div><h1>Hodynnyk</h1><small>WORK CALENDAR</small></div></div>
+        <span class="welcome-kicker">QA · АЗС · ТЕСТИ</span>
+        <h2>Один календар для двох робіт.</h2>
+        <p>${message ? esc(message) : 'Позначай відпрацьовані дні, плануй зміни АЗС і тримай QA availability в одному місці.'}</p>
+        <div class="actions welcome-actions">
           ${config?.authConfigured ? '<a class="btn primary" href="/api/auth/login?return=/">Увійти через Telegram</a>' : '<span class="pill">Telegram login ще не налаштований</span>'}
+          <button class="btn ghost" type="button" data-install-pwa hidden>Встановити PWA</button>
         </div>
       </section>
     </main>`;
+  finishBoot();
 }
+
 
 function roleLabel() {
   return user?.role === 'manager' ? 'Керівник' : 'Мій профіль';
@@ -70,23 +87,48 @@ function shiftsForDate(date) {
   return (state?.shifts || []).filter(s => s.date === date);
 }
 
+function workForDate(date) {
+  return Array.isArray(state?.workLog?.[date]) ? state.workLog[date] : [];
+}
+
+function workCountsForMonth() {
+  const m = monthKey(viewDate);
+  let qa = 0, azs = 0, total = 0;
+  Object.entries(state?.workLog || {}).forEach(([date, types]) => {
+    if (!date.startsWith(m) || !Array.isArray(types)) return;
+    if (types.includes('qa')) qa++;
+    if (types.includes('azs')) azs++;
+    if (types.length) total++;
+  });
+  return { qa, azs, total };
+}
+
 function renderShell() {
   $('#app').innerHTML = `
     <main class="shell role-${esc(user.role)}">
       <header class="topbar">
         <div class="brand">
-          <div class="brandmark">H</div>
-          <div><h1>Hodynnyk</h1><small>SHIFT / QA CONTROL</small></div>
+          <img class="brandicon" src="/icons/icon-192.png" alt="">
+          <div><h1>Hodynnyk</h1><small>WORK CALENDAR</small></div>
         </div>
         <div class="userbar">
           <span class="pill green">${roleLabel()}</span>
           ${user?.picture ? `<img class="avatar" src="${esc(user.picture)}" alt="">` : ''}
-          <span class="pill">${esc(user?.name || user?.username || 'User')}</span>
+          <span class="pill user-name">${esc(user?.name || user?.username || 'User')}</span>
           <button class="btn ghost" type="button" data-install-pwa hidden>Встановити</button>
           ${config?.authConfigured ? '<a class="btn ghost" href="/api/auth/logout">Вийти</a>' : ''}
         </div>
       </header>
 
+      <section class="cozy-hero">
+        <div class="cozy-copy">
+          <span class="welcome-kicker">МІЙ РИТМ НА МІСЯЦЬ</span>
+          <h2>Робочий календар без зайвого шуму.</h2>
+          <p>Тап по даті — і ти одразу відмічаєш QA або АЗС. Підсумок місяця рахується автоматично.</p>
+          <div class="hero-chips"><span>QA</span><span>АЗС</span><span>Tests</span></div>
+        </div>
+        <div class="cozy-visual" aria-hidden="true"><img src="/assets/hodynnyk-scene.webp" alt=""></div>
+      </section>
 
       <section class="stats" id="stats"></section>
 
@@ -129,17 +171,20 @@ function renderShell() {
         </aside>
       </section>
     </main>`;
+  finishBoot();
 }
+
 
 function renderStats() {
   const metric = metricForMonth();
   const absences = absencesForMonth();
-  const shifts = (state.shifts || []).filter(s => s.date.startsWith(monthKey(viewDate)));
+  const worked = workCountsForMonth();
   const progress = metric.target > 0 ? Math.min(100, Math.round(metric.completed / metric.target * 100)) : 0;
   $('#stats').innerHTML = `
+    <div class="stat"><div class="label">QA відпрацьовано</div><div class="value">${worked.qa}</div><div class="sub">днів у ${esc(monthName(viewDate))}</div></div>
+    <div class="stat"><div class="label">АЗС відпрацьовано</div><div class="value">${worked.azs}</div><div class="sub">змін / днів</div></div>
     <div class="stat"><div class="label">Тести / місяць</div><div class="value">${metric.completed || 0}</div><div class="sub">ціль ${metric.target || '—'}</div><div class="progress"><i style="width:${progress}%"></i></div></div>
-    <div class="stat"><div class="label">Зміни АЗС</div><div class="value">${shifts.length}</div><div class="sub">у ${esc(monthName(viewDate))}</div></div>
-    <div class="stat"><div class="label">QA OFF</div><div class="value">${absences.length}</div><div class="sub">робочих днів з конфліктом</div></div>`;
+    <div class="stat"><div class="label">QA OFF</div><div class="value">${absences.length}</div><div class="sub">запланованих конфліктів</div></div>`;
 }
 
 function renderCalendar() {
@@ -158,11 +203,14 @@ function renderCalendar() {
     const date = isoDate(d);
     const inMonth = d.getMonth() === month;
     const shifts = shiftsForDate(date);
+    const worked = workForDate(date);
     const off = absenceSet.has(date);
     html += `<button class="day ${!inMonth?'out':''} ${date===today?'today':''} ${date===selected?'selected':''}" data-date="${date}">
       <span class="daynum">${d.getDate()}</span>
       <span class="dots">
-        ${shifts.length ? `<span class="dot azs">АЗС ${esc(shifts[0].start || state.settings.shiftStart)}</span>` : ''}
+        ${worked.includes('qa') ? '<span class="dot qa-work">QA</span>' : ''}
+        ${worked.includes('azs') ? '<span class="dot azs-work">АЗС</span>' : ''}
+        ${shifts.length ? `<span class="dot planned">план ${esc(shifts[0].start || state.settings.shiftStart)}</span>` : ''}
         ${off ? '<span class="dot off">QA OFF</span>' : ''}
       </span>
     </button>`;
@@ -222,28 +270,48 @@ function renderTests() {
 
 function renderDayCard() {
   const shifts = shiftsForDate(selected);
+  const worked = workForDate(selected);
   const editable = user.role === 'admin';
   const shift = shifts[0];
+  const workedLabel = worked.length ? worked.map(v => v === 'qa' ? 'QA' : 'АЗС').join(' + ') : 'не відмічено';
   $('#dayCard').innerHTML = `
-    <div class="section-title"><h2>${esc(humanDate(selected))}</h2><span>${shift ? 'АЗС' : 'вільно'}</span></div>
+    <div class="section-title"><h2>${esc(humanDate(selected))}</h2><span>${esc(workedLabel)}</span></div>
     ${editable ? `
+      <div class="work-picker" role="group" aria-label="Відпрацьований день">
+        <button class="work-choice ${worked.includes('qa')?'active':''}" data-work="qa" type="button"><b>QA</b><span>відпрацював у QA</span></button>
+        <button class="work-choice ${worked.includes('azs')?'active':''}" data-work="azs" type="button"><b>АЗС</b><span>відпрацював на АЗС</span></button>
+      </div>
+      <button class="btn ghost clear-work" id="clearWork" type="button" ${worked.length?'':'disabled'}>Очистити позначку</button>
+      <div class="day-divider"></div>
+      <div class="helper" style="margin-bottom:10px">Нижче — планова зміна АЗС. Вона використовується для автоматичного QA OFF та Telegram-сповіщень і не залежить від фактичної позначки вище.</div>
       <div class="formrow">
         <div class="field"><label>Старт</label><input id="shiftStart" class="input" type="time" value="${esc(shift?.start || state.settings.shiftStart || '08:00')}"></div>
         <div class="field"><label>Тривалість, год</label><input id="shiftDuration" class="input" type="number" min="1" max="48" value="${esc(shift?.durationHours || state.settings.shiftDurationHours || 24)}"></div>
       </div>
       <div class="field" style="margin-bottom:12px"><label>Нотатка</label><input id="shiftNote" class="input" maxlength="120" value="${esc(shift?.note || '')}" placeholder="необов'язково"></div>
       <div class="actions">
-        ${shift ? '<button class="btn danger" id="removeShift">Видалити зміну</button>' : '<button class="btn primary" id="addShift">Додати зміну</button>'}
+        ${shift ? '<button class="btn danger" id="removeShift">Видалити планову зміну</button>' : '<button class="btn primary" id="addShift">Запланувати зміну</button>'}
       </div>` : `
-      <div class="helper">${shift ? `Зміна АЗС: ${esc(shift.start)} · ${esc(shift.durationHours)} год.` : 'На цю дату зміна АЗС не внесена.'}</div>`}`;
+      <div class="worked-readonly">${worked.length ? `Відпрацьовано: <strong>${esc(workedLabel)}</strong>` : 'Фактична робота на цю дату ще не відмічена.'}</div>
+      <div class="helper" style="margin-top:10px">${shift ? `Планова зміна АЗС: ${esc(shift.start)} · ${esc(shift.durationHours)} год.` : 'Планова зміна АЗС відсутня.'}</div>`}`;
+
+  $$('[data-work]').forEach(btn => btn.addEventListener('click', async () => {
+    const type = btn.dataset.work;
+    const next = new Set(workForDate(selected));
+    if (next.has(type)) next.delete(type); else next.add(type);
+    await action('setWorkDay', { date:selected, types:[...next] });
+  }));
+  $('#clearWork')?.addEventListener('click', async () => {
+    await action('setWorkDay', { date:selected, types:[] });
+  });
   $('#addShift')?.addEventListener('click', async () => {
     await action('addShift', { date:selected, start:$('#shiftStart').value, durationHours:Number($('#shiftDuration').value), note:$('#shiftNote').value });
-    toast('Зміну додано');
+    toast('Зміну заплановано');
   });
   $('#removeShift')?.addEventListener('click', async () => {
-    if (!confirm('Видалити цю зміну АЗС?')) return;
+    if (!confirm('Видалити планову зміну АЗС?')) return;
     await action('removeShift', { id:shift.id });
-    toast('Зміну видалено');
+    toast('Планову зміну видалено');
   });
 }
 

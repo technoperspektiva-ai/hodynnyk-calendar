@@ -30,6 +30,9 @@
       "0 * * * *"
     ]
   },
+  "vars": {
+    "TELEGRAM_BOT_USERNAME": "HodynnykCalendar_bot"
+  },
   "observability": {
     "enabled": true
   }

@@ -27,15 +27,28 @@ function renderRecipients(){
   const rows=state.recipients||[];
   $('#recipients').innerHTML=`
     <div class="section-title"><h2>Telegram recipients</h2><span>${rows.length}</span></div>
-    <div class="helper" style="margin-bottom:14px">Сюди прийде повідомлення ввечері, якщо наступного дня ти недоступний для QA.</div>
+    <div class="helper" style="margin-bottom:14px">Сюди приходять автоматичні та ручні повідомлення через ${config?.botUsername ? '@'+esc(config.botUsername) : 'Telegram-бота'}. Ручний пуш «про завтра» відправиться тільки якщо на завтра є запланована зміна АЗС.</div>
     <div class="formrow"><div class="field"><label>Назва</label><input id="rName" class="input" placeholder="QA Lead"></div><div class="field"><label>Telegram chat ID</label><input id="rChat" class="input" placeholder="123456789 або -100…"></div></div>
     <button class="btn primary" id="addRecipient">Додати отримувача</button>
     <div class="list" style="margin-top:14px">${rows.length?rows.map(r=>`<div class="rowitem"><div><div class="name">${esc(r.name)}</div><div class="meta">${esc(r.chatId)}</div></div><div class="actions"><button class="switch ${r.enabled!==false?'on':''}" data-toggle-r="${esc(r.id)}" aria-label="toggle"></button><button class="btn ghost" data-test-r="${esc(r.id)}">test</button><button class="btn danger" data-del-r="${esc(r.id)}">×</button></div></div>`).join(''):'<div class="empty">Отримувачів поки немає.</div>'}</div>
-    <div class="actions" style="margin-top:14px"><button class="btn" id="runNow">Запустити перевірку зараз</button></div>`;
+    <div class="actions" style="margin-top:14px">
+      <button class="btn primary" id="sendTomorrow">Надіслати про завтра</button>
+      <button class="btn" id="runNow">Запустити QA-перевірку</button>
+      ${config?.botUsername ? `<a class="btn ghost" href="https://t.me/${esc(config.botUsername)}" target="_blank" rel="noopener">Відкрити @${esc(config.botUsername)}</a>` : ''}
+    </div>`;
   $('#addRecipient').onclick=async()=>{try{await action('addRecipient',{name:$('#rName').value,chatId:$('#rChat').value});toast('Отримувача додано')}catch(e){toast(e.message)}};
   $$('[data-toggle-r]').forEach(b=>b.onclick=async()=>{const r=rows.find(x=>x.id===b.dataset.toggleR);await action('updateRecipient',{id:r.id,enabled:r.enabled===false});});
   $$('[data-del-r]').forEach(b=>b.onclick=async()=>{if(confirm('Видалити отримувача?'))await action('removeRecipient',{id:b.dataset.delR})});
   $$('[data-test-r]').forEach(b=>b.onclick=async()=>{try{await api('/api/telegram/test',{method:'POST',body:JSON.stringify({recipientId:b.dataset.testR})});toast('Тест надіслано');await reload()}catch(e){toast(e.message)}});
+  $('#sendTomorrow').onclick=async()=>{
+    try{
+      const d=await api('/api/notifications/tomorrow',{method:'POST',body:'{}'});
+      if(d.skipped==='no-azs-shift') toast('На завтра немає зміни АЗС');
+      else if(d.skipped==='no-recipients') toast('Немає активних отримувачів');
+      else { const sent=(d.results||[]).filter(x=>x.status==='sent').length; toast(`Надіслано: ${sent}`); }
+      await reload();
+    }catch(e){toast(e.message)}
+  };
   $('#runNow').onclick=async()=>{try{const d=await api('/api/notifications/run',{method:'POST',body:'{}'});toast(d.skipped==='no-absence'?'На завтра QA OFF немає':'Перевірку виконано');await reload()}catch(e){toast(e.message)}};
 }
 
@@ -57,7 +70,7 @@ function renderManagers(){
 function renderLogs(){
   const rows=[...(state.notificationLog||[])].reverse().slice(0,80);
   $('#logs').innerHTML=`<div class="section-title"><h2>Delivery log</h2><span>${rows.length}</span></div>
-    ${rows.length?`<div style="overflow:auto"><table class="table"><thead><tr><th>Коли</th><th>Кому</th><th>Статус</th><th>Дата QA</th></tr></thead><tbody>${rows.map(l=>`<tr><td>${esc(new Date(l.at).toLocaleString('uk-UA'))}</td><td>${esc(l.recipientName||l.chatId||'—')}</td><td class="${l.status==='sent'?'success':'error'}">${esc(l.status)}</td><td>${esc(l.date||'test')}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Відправок ще не було.</div>'}
+    ${rows.length?`<div style="overflow:auto"><table class="table"><thead><tr><th>Коли</th><th>Кому</th><th>Статус</th><th>Дата</th></tr></thead><tbody>${rows.map(l=>`<tr><td>${esc(new Date(l.at).toLocaleString('uk-UA'))}</td><td>${esc(l.recipientName||l.chatId||'—')}</td><td class="${l.status==='sent'?'success':'error'}">${esc(l.status)}</td><td>${esc(l.date || (l.type==='manual-tomorrow'?'manual':'test'))}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Відправок ще не було.</div>'}
     <div class="actions" style="margin-top:14px"><button class="btn danger" id="clearLogs">Очистити журнал</button></div>`;
   $('#clearLogs').onclick=async()=>{if(confirm('Очистити журнал?'))await action('clearLogs',{})};
 }

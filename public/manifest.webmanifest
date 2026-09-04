@@ -2,7 +2,7 @@
   "id": "/",
   "name": "Hodynnyk Calendar",
   "short_name": "Hodynnyk",
-  "description": "АЗС shift calendar, QA availability and monthly test progress.",
+  "description": "Календар QA, АЗС та місячного прогресу тестів.",
   "lang": "uk",
   "start_url": "/",
   "scope": "/",
@@ -12,8 +12,8 @@
     "minimal-ui"
   ],
   "orientation": "any",
-  "background_color": "#060907",
-  "theme_color": "#060907",
+  "background_color": "#f5f1ec",
+  "theme_color": "#f4ede6",
   "categories": [
     "productivity",
     "business"
