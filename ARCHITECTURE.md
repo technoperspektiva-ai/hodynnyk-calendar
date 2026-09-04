@@ -1,70 +1,26 @@
-# hodynnyk-calendar — architecture v0.1
+# Hodynnyk Calendar — architecture
 
-## Product
-
-Окремий продукт. `myHabbit` не змінюється і не є кодовою базою цього застосунку.
-
-## Stack
-
-- Vanilla HTML/CSS/JS PWA;
-- Cloudflare Workers Static Assets;
-- Cloudflare Worker API;
-- SQLite-backed Durable Object `AppStore`;
-- Cloudflare Cron Trigger;
-- Telegram Bot API;
-- Telegram OIDC Login + PKCE;
-- GitHub Actions → `npx wrangler deploy`.
-
-## URL layout
-
-```text
-/
-  main calendar / QA / tests
-
-/last-admin
-  recipients / managers / delivery log
-
-/api/*
-  auth + state + mutations + notifications
-```
-
-## State
-
-Single Durable Object named `primary` stores:
-
-```text
-settings
-shifts[]
-recipients[]
-managers[]
-metrics{ YYYY-MM -> completed/target }
-notificationLog[]
-```
+- PWA frontend: calendar, QA conflicts, monthly completed tests and manager-set target.
+- Cloudflare Worker: auth, role enforcement, private control route, API and Telegram notification scheduler.
+- Durable Object: shifts, settings, recipients, managers, monthly metrics and delivery log.
+- Telegram OIDC: required for both owner and manager.
+- Telegram Bot API: absence notifications.
+- Cloudflare Cron: checks tomorrow's QA conflict.
 
 ## Permissions
 
-```text
-admin
-  full write access
+Owner/admin:
+- write shifts and QA settings
+- write own completed-test count
+- read target
+- manage recipients and manager Telegram IDs through the private control route
 
-manager
-  read calendar and metrics
-  write monthly target only
+Manager:
+- read calendar and metrics
+- write monthly target only
 
-unknown Telegram user
-  forbidden
-```
+The monthly target endpoint is server-enforced as manager-only. The completed-test endpoints are server-enforced as owner-only.
 
-`/last-admin` UI requires `admin`; all sensitive API mutations are protected server-side as well.
+## Private control route
 
-## Absence calculation
-
-For each QA workday:
-
-```text
-QA interval = date + configured QA start/end
-AZS interval = shift date/start + shift duration + optional recovery
-QA OFF = intervals overlap
-```
-
-This means a 24h shift can automatically mark the correct QA day(s), instead of treating an entire calendar day as unavailable by definition.
+Its pathname is stored only in the `ADMIN_PATH` Cloudflare secret. The public PWA does not link, advertise, shortcut or cache it.

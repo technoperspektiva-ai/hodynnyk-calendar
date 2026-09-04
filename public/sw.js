@@ -1,15 +1,12 @@
-const VERSION = '0.1.3';
+const VERSION = '0.1.4';
 const STATIC_CACHE = `hodynnyk-static-${VERSION}`;
 const RUNTIME_CACHE = `hodynnyk-runtime-${VERSION}`;
 
 const PRECACHE = [
   '/',
   '/index.html',
-  '/last-admin',
-  '/admin.html',
   '/styles.css',
   '/app.js',
-  '/admin.js',
   '/pwa.js',
   '/manifest.webmanifest',
   '/icons/icon-192.png',
@@ -48,19 +45,22 @@ self.addEventListener('fetch', event => {
   if (url.pathname.startsWith('/api/')) return;
 
   if (request.mode === 'navigate') {
+    // Only the main PWA shell is cached. Private/unknown routes are network-only.
+    if (url.pathname !== '/' && url.pathname !== '/index.html') {
+      event.respondWith(fetch(request));
+      return;
+    }
     event.respondWith((async () => {
       try {
         const network = await fetch(request);
-        const cache = await caches.open(RUNTIME_CACHE);
-        cache.put(request, network.clone());
+        const cacheControl = network.headers.get('cache-control') || '';
+        if (network.ok && !cacheControl.includes('no-store')) {
+          const cache = await caches.open(RUNTIME_CACHE);
+          await cache.put(request, network.clone());
+        }
         return network;
       } catch {
-        const cached = await caches.match(request);
-        if (cached) return cached;
-        if (url.pathname.startsWith('/last-admin')) {
-          return (await caches.match('/last-admin')) || (await caches.match('/admin.html'));
-        }
-        return (await caches.match('/')) || (await caches.match('/index.html'));
+        return (await caches.match(request)) || (await caches.match('/')) || (await caches.match('/index.html'));
       }
     })());
     return;

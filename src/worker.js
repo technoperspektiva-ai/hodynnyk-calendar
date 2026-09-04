@@ -309,12 +309,14 @@ function authConfigured(env) {
   return !!(env.TELEGRAM_CLIENT_ID && env.TELEGRAM_CLIENT_SECRET && env.AUTH_SECRET && env.ADMIN_TELEGRAM_ID);
 }
 
+function adminPath(env) {
+  const raw = String(env.ADMIN_PATH || '').trim().replace(/^\/+|\/+$/g, '');
+  return raw && /^[a-zA-Z0-9_-]{6,80}$/.test(raw) ? `/${raw}` : null;
+}
+
+
 async function currentUser(request, env, state) {
-  if (!authConfigured(env)) {
-    const url = new URL(request.url);
-    const demoRole = url.searchParams.get('demoRole') || request.headers.get('x-demo-role') || 'admin';
-    return { id: 'demo-admin', name: demoRole === 'manager' ? 'Demo Manager' : 'Demo Admin', username: 'demo', role: demoRole === 'manager' ? 'manager' : 'admin', demo: true };
-  }
+  if (!authConfigured(env)) return null;
   const cookies = parseCookies(request);
   const session = await verifySession(cookies.hc_session, env.AUTH_SECRET);
   if (!session?.id) return null;
@@ -336,7 +338,7 @@ async function handleAction(request, env, user, state) {
   const p = body?.payload || {};
   const adminOnly = new Set(['addShift','removeShift','setSettings','setTestsCompleted','incrementTests','addRecipient','updateRecipient','removeRecipient','addManager','updateManager','removeManager','clearLogs']);
   if (adminOnly.has(type) && !requireRole(user, ['admin'])) return json({ ok: false, error: 'Forbidden' }, 403);
-  if (type === 'setTestTarget' && !requireRole(user, ['admin','manager'])) return json({ ok: false, error: 'Forbidden' }, 403);
+  if (type === 'setTestTarget' && !requireRole(user, ['manager'])) return json({ ok: false, error: 'Only manager can set the monthly target' }, 403);
 
   if (type === 'addShift') {
     if (!validateDate(p.date)) return json({ ok:false,error:'Invalid date' },400);
@@ -412,10 +414,10 @@ async function handleAction(request, env, user, state) {
 }
 
 async function telegramOidcLogin(request, env) {
-  if (!authConfigured(env)) return redirect('/?demo=1');
+  if (!authConfigured(env)) return redirect('/?auth=not-configured');
   const url = new URL(request.url);
   const returnToRaw = url.searchParams.get('return') || '/';
-  const returnTo = returnToRaw.startsWith('/') ? returnToRaw : '/';
+  const returnTo = returnToRaw.startsWith('/') && !returnToRaw.startsWith('//') ? returnToRaw : '/';
   const state = randomToken(24);
   const verifier = randomToken(48);
   const digest = await crypto.subtle.digest('SHA-256', enc.encode(verifier));
@@ -523,12 +525,31 @@ async function runNotificationCycle(env, force = false) {
   return { ok:true, tomorrow, absence, results };
 }
 
+async function privateAdminAsset(request, env, state) {
+  const url = new URL(request.url);
+  const base = adminPath(env);
+  if (!base) return null;
+  if (url.pathname !== base && url.pathname !== `${base}/` && url.pathname !== `${base}/app.js`) return null;
+
+  const user = await currentUser(request, env, state);
+  // Do not reveal whether this private route exists to anonymous or non-admin users.
+  if (!requireRole(user, ['admin'])) return new Response('Not found', { status: 404, headers: { 'cache-control':'no-store' } });
+
+  if (url.pathname === base) return redirect(`${base}/`);
+  const rewritten = new URL(request.url);
+  rewritten.pathname = url.pathname === `${base}/app.js` ? '/admin.js' : '/admin.html';
+  const response = await env.ASSETS.fetch(new Request(rewritten, request));
+  const headers = new Headers(response.headers);
+  headers.set('cache-control','no-store, private');
+  headers.set('x-robots-tag','noindex, nofollow, noarchive');
+  return new Response(response.body, { status:response.status, statusText:response.statusText, headers });
+}
+
 async function serveAsset(request, env) {
   const url = new URL(request.url);
-  if (url.pathname === '/last-admin' || url.pathname === '/last-admin/') {
-    const rewritten = new URL(request.url);
-    rewritten.pathname = '/admin.html';
-    return env.ASSETS.fetch(new Request(rewritten, request));
+  // Internal admin source files are never addressable directly.
+  if (url.pathname === '/admin.html' || url.pathname === '/admin.js') {
+    return new Response('Not found', { status:404, headers:{ 'cache-control':'no-store' } });
   }
   return env.ASSETS.fetch(request);
 }
@@ -538,8 +559,15 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    if (path === '/api/health') return json({ ok:true, app:'hodynnyk-calendar', version:'0.1.0' });
-    if (path === '/api/config') return json({ ok:true, authConfigured:authConfigured(env), app:'Hodynnyk', version:'0.1.0' });
+    const privateBase = adminPath(env);
+    if (privateBase && (path === privateBase || path === `${privateBase}/` || path === `${privateBase}/app.js`)) {
+      const stateForPrivateRoute = await readState(env);
+      const privateResponse = await privateAdminAsset(request, env, stateForPrivateRoute);
+      if (privateResponse) return privateResponse;
+    }
+
+    if (path === '/api/health') return json({ ok:true, app:'hodynnyk-calendar', version:'0.1.4' });
+    if (path === '/api/config') return json({ ok:true, authConfigured:authConfigured(env), app:'Hodynnyk', version:'0.1.4' });
     if (path === '/api/auth/login') return telegramOidcLogin(request, env);
     if (path === '/api/auth/callback') {
       try { return await telegramOidcCallback(request, env); }

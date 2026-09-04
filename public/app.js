@@ -25,10 +25,9 @@ function toast(text) {
 }
 
 async function api(url, options = {}) {
-  const demoRole = new URLSearchParams(location.search).get('demoRole');
   const res = await fetch(url, {
     ...options,
-    headers: { 'content-type':'application/json', ...(demoRole ? {'x-demo-role': demoRole} : {}), ...(options.headers || {}) }
+    headers: { 'content-type':'application/json', ...(options.headers || {}) }
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
@@ -48,14 +47,14 @@ function loginScreen(message = '') {
         <h1>Hodynnyk</h1>
         <p>${message ? esc(message) : 'Приватний календар АЗС та QA availability.'}</p>
         <div class="actions" style="justify-content:center;margin-top:18px">
-          <a class="btn primary" href="/api/auth/login?return=/">Увійти через Telegram</a>
+          ${config?.authConfigured ? '<a class="btn primary" href="/api/auth/login?return=/">Увійти через Telegram</a>' : '<span class="pill">Telegram login ще не налаштований</span>'}
         </div>
       </section>
     </main>`;
 }
 
 function roleLabel() {
-  return user?.role === 'manager' ? 'Manager' : 'Admin';
+  return user?.role === 'manager' ? 'Керівник' : 'Мій профіль';
 }
 
 function metricForMonth() {
@@ -72,7 +71,6 @@ function shiftsForDate(date) {
 }
 
 function renderShell() {
-  const demo = user?.demo ? '<span class="pill">DEMO</span>' : '';
   $('#app').innerHTML = `
     <main class="shell role-${esc(user.role)}">
       <header class="topbar">
@@ -81,17 +79,14 @@ function renderShell() {
           <div><h1>Hodynnyk</h1><small>SHIFT / QA CONTROL</small></div>
         </div>
         <div class="userbar">
-          ${demo}
           <span class="pill green">${roleLabel()}</span>
           ${user?.picture ? `<img class="avatar" src="${esc(user.picture)}" alt="">` : ''}
           <span class="pill">${esc(user?.name || user?.username || 'User')}</span>
           <button class="btn ghost" type="button" data-install-pwa hidden>Встановити</button>
-          ${user.role === 'admin' ? '<a class="btn ghost" href="/last-admin">last-admin</a>' : ''}
           ${config?.authConfigured ? '<a class="btn ghost" href="/api/auth/logout">Вийти</a>' : ''}
         </div>
       </header>
 
-      ${user?.demo ? `<div class="card cardpad" style="margin-bottom:18px"><div class="helper">Demo mode: Telegram secrets ще не задані. Для перегляду ролі керівника відкрий <b>?demoRole=manager</b>.</div></div>` : ''}
 
       <section class="stats" id="stats"></section>
 
@@ -129,7 +124,7 @@ function renderShell() {
           <section class="card cardpad admin-only" id="settingsCard"></section>
           <section class="card cardpad manager-note">
             <div class="section-title"><h2>Доступ керівника</h2></div>
-            <div class="locknote">Ви можете переглядати календар і встановлювати місячну планку тестів. Зміни АЗС, QA-графік і фактичний лічильник доступні тільки адміністратору.</div>
+            <div class="locknote">Ви можете переглядати календар і змінювати тільки місячну планку тестів. Фактичну кількість тестів та робочий графік редагує власник профілю.</div>
           </section>
         </aside>
       </section>
@@ -189,33 +184,40 @@ function renderCalendar() {
 function renderTests() {
   const metric = metricForMonth();
   const setter = metric.targetSetBy?.name ? ` · ${esc(metric.targetSetBy.name)}` : '';
+  const adminEditor = user.role === 'admin' ? `
+    <div class="actions" style="margin-top:16px">
+      <button class="btn" data-inc="1">+1 тест</button>
+      <button class="btn" data-inc="5">+5</button>
+      <button class="btn ghost" id="setCompleted">Задати свою цифру</button>
+    </div>
+    <div class="locknote" style="margin-top:14px">Планку встановлює тільки керівник. Для вас вона доступна лише для перегляду.</div>` : `
+    <div class="target-editor" style="margin-top:16px">
+      <div class="field"><label>Планка на місяць</label><input class="input" id="targetValue" type="number" min="0" value="${metric.target || 0}"></div>
+      <button class="btn primary" id="saveTarget">Зберегти планку</button>
+    </div>
+    <div class="locknote" style="margin-top:14px">Виконану кількість тестів редагує тільки власник профілю.</div>`;
   $('#testsCard').innerHTML = `
     <div class="section-title"><h2>Monthly tests</h2><span>${esc(monthKey(viewDate))}</span></div>
     <div class="big-num">${metric.completed || 0}<span style="font-size:18px;color:var(--muted);font-weight:500"> / ${metric.target || '—'}</span></div>
-    <div class="helper" style="margin:5px 0 15px">Виконано / планка${setter}</div>
-    <div class="actions admin-only" style="margin-bottom:16px">
-      <button class="btn" data-inc="1">+1 тест</button>
-      <button class="btn" data-inc="5">+5</button>
-      <button class="btn ghost" id="setCompleted">Задати число</button>
-    </div>
-    <div class="target-editor">
-      <div class="field"><label>Планка на місяць</label><input class="input" id="targetValue" type="number" min="0" value="${metric.target || 0}"></div>
-      <button class="btn primary" id="saveTarget">Зберегти</button>
-    </div>
-    ${user.role === 'manager' ? '<div class="helper" style="margin-top:10px">Це поле доступне керівнику; фактичну кількість тестів він змінити не може.</div>' : ''}`;
-  $$('[data-inc]').forEach(btn => btn.addEventListener('click', async () => {
-    await action('incrementTests', { month:monthKey(viewDate), delta:Number(btn.dataset.inc) });
-  }));
-  $('#setCompleted')?.addEventListener('click', async () => {
-    const current = metricForMonth().completed || 0;
-    const v = prompt('Скільки тестів виконано цього місяця?', current);
-    if (v == null) return;
-    await action('setTestsCompleted', { month:monthKey(viewDate), value:Number(v) });
-  });
-  $('#saveTarget').addEventListener('click', async () => {
-    await action('setTestTarget', { month:monthKey(viewDate), value:Number($('#targetValue').value || 0) });
-    toast('Планку збережено');
-  });
+    <div class="helper" style="margin:5px 0 0">Виконано / планка${setter}</div>
+    ${adminEditor}`;
+
+  if (user.role === 'admin') {
+    $$('[data-inc]').forEach(btn => btn.addEventListener('click', async () => {
+      await action('incrementTests', { month:monthKey(viewDate), delta:Number(btn.dataset.inc) });
+    }));
+    $('#setCompleted')?.addEventListener('click', async () => {
+      const current = metricForMonth().completed || 0;
+      const v = prompt('Скільки тестів виконано цього місяця?', current);
+      if (v == null) return;
+      await action('setTestsCompleted', { month:monthKey(viewDate), value:Number(v) });
+    });
+  } else {
+    $('#saveTarget')?.addEventListener('click', async () => {
+      await action('setTestTarget', { month:monthKey(viewDate), value:Number($('#targetValue').value || 0) });
+      toast('Планку збережено');
+    });
+  }
 }
 
 function renderDayCard() {

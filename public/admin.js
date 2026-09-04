@@ -5,12 +5,11 @@ let state=null, user=null, config=null;
 function toast(text){const el=$('#toast');el.textContent=text;el.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove('show'),2200)}
 async function api(url,options={}){const r=await fetch(url,{...options,headers:{'content-type':'application/json',...(options.headers||{})}});const d=await r.json().catch(()=>({}));if(!r.ok){const e=new Error(d.error||`HTTP ${r.status}`);e.status=r.status;e.data=d;throw e}return d}
 
-function blocked(message){$('#app').innerHTML=`<main class="shell login"><section class="card loginbox"><div class="loginmark">H</div><h1>last-admin</h1><p>${esc(message)}</p><div class="actions" style="justify-content:center;margin-top:18px"><a class="btn" href="/">← Календар</a>${message.includes('авториза')?'<a class="btn primary" href="/api/auth/login?return=/last-admin">Telegram login</a>':''}</div></section></main>`}
+function blocked(message){$('#app').innerHTML=`<main class="shell login"><section class="card loginbox"><div class="loginmark">H</div><h1>Hodynnyk</h1><p>${esc(message)}</p><div class="actions" style="justify-content:center;margin-top:18px"><a class="btn" href="/">← Календар</a>${message.includes('авториза')?`<a class="btn primary" href="/api/auth/login?return=${encodeURIComponent(location.pathname)}">Telegram login</a>`:''}</div></section></main>`}
 
 function shell(){
   $('#app').innerHTML=`<main class="shell">
-    <header class="topbar"><div class="brand"><div class="brandmark">H</div><div><h1>Hodynnyk</h1><small>LAST ADMIN</small></div></div><div class="userbar"><span class="pill green">Admin</span><span class="pill">${esc(user.name||user.username||user.id)}</span><button class="btn ghost" type="button" data-install-pwa hidden>Встановити</button><a class="btn ghost" href="/">Календар</a>${config.authConfigured?'<a class="btn ghost" href="/api/auth/logout">Вийти</a>':''}</div></header>
-    ${user.demo?'<div class="card cardpad" style="margin-bottom:18px"><div class="helper">Demo mode. Після додавання Cloudflare secrets доступ до цієї сторінки матиме тільки ADMIN_TELEGRAM_ID.</div></div>':''}
+    <header class="topbar"><div class="brand"><div class="brandmark">H</div><div><h1>Hodynnyk</h1><small>CONTROL</small></div></div><div class="userbar"><span class="pill green">Admin</span><span class="pill">${esc(user.name||user.username||user.id)}</span><button class="btn ghost" type="button" data-install-pwa hidden>Встановити</button><a class="btn ghost" href="/">Календар</a>${config.authConfigured?'<a class="btn ghost" href="/api/auth/logout">Вийти</a>':''}</div></header>
     <section class="admin-layout">
       <aside class="card side"><a class="active" href="#recipients">Recipients</a><a href="#managers">Managers</a><a href="#logs">Delivery log</a></aside>
       <div class="stack">
