@@ -31,7 +31,10 @@
     ]
   },
   "vars": {
-    "TELEGRAM_BOT_USERNAME": "HodynnykCalendar_bot"
+    "ADMIN_TELEGRAM_ID": "375938798",
+    "TELEGRAM_CLIENT_ID": "8821803679",
+    "TELEGRAM_BOT_USERNAME": "HodynnykCalendar_bot",
+    "ADMIN_PATH": "last-admin"
   },
   "observability": {
     "enabled": true
