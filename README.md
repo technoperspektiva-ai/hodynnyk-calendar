@@ -35,3 +35,11 @@ ADMIN_PATH
 ```
 
 `TELEGRAM_BOT_USERNAME=HodynnykCalendar_bot` заданий у `wrangler.jsonc` як звичайна variable.
+
+## v0.3.1 UI / statistics update
+- `wrangler.jsonc` intentionally unchanged from v0.3.0.
+- Main header: `Календар`.
+- Monthly test total remains visible on the main calendar.
+- Day modal supports QA, АЗС, and Вихідний.
+- Вихідний is exclusive and stores no work hours/tests.
+- Manager sees monthly total worked hours calculated from saved day start/end times.

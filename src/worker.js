@@ -380,11 +380,13 @@ async function handleAction(request, env, user, state) {
 
   if (type === 'setDayDetails') {
     if (!validateDate(p.date)) return json({ ok:false,error:'Invalid date' },400);
-    const allowed = new Set(['qa','azs']);
-    const types = Array.isArray(p.types) ? [...new Set(p.types.map(String).filter(v => allowed.has(v)))] : [];
-    const tests = Math.max(0, Math.min(9999, Math.floor(Number(p.tests || 0))));
-    const start = validateTime(p.start) ? p.start : '';
-    const end = validateTime(p.end) ? p.end : '';
+    const allowed = new Set(['qa','azs','off']);
+    let types = Array.isArray(p.types) ? [...new Set(p.types.map(String).filter(v => allowed.has(v)))] : [];
+    if (types.includes('off')) types = ['off'];
+    let tests = Math.max(0, Math.min(9999, Math.floor(Number(p.tests || 0))));
+    let start = validateTime(p.start) ? p.start : '';
+    let end = validateTime(p.end) ? p.end : '';
+    if (types.includes('off')) { tests = 0; start = ''; end = ''; }
     const note = cleanText(p.note, 120);
 
     if (types.length) state.workLog[p.date] = types; else delete state.workLog[p.date];
@@ -424,7 +426,7 @@ async function handleAction(request, env, user, state) {
 
   if (type === 'setWorkDay') {
     if (!validateDate(p.date)) return json({ ok:false,error:'Invalid date' },400);
-    const allowed = new Set(['qa','azs']);
+    const allowed = new Set(['qa','azs','off']);
     const values = Array.isArray(p.types) ? [...new Set(p.types.map(String).filter(v => allowed.has(v)))] : [];
     if (values.length) state.workLog[p.date] = values;
     else delete state.workLog[p.date];
