@@ -19,3 +19,7 @@ When `types` includes `azs`, Worker creates/updates a shift for the same date so
 - Якщо QA OFF завтра є — надсилається звичайне повідомлення про відсутність.
 - Якщо QA OFF немає — надсилається той самий формат зі статусом «QA OFF немає / доступний за звичайним графіком».
 - Cron не змінено: автоматично він надсилає повідомлення лише коли QA OFF реально є.
+
+
+## v0.4.9
+Manager calendar now has a compact Telegram self-sync button next to Excel. It calls `/api/telegram/sync-self` and only binds the currently authenticated manager/admin Telegram account to its private bot chat.

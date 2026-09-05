@@ -154,3 +154,15 @@
   .admin-nav-actions .btn{width:auto;min-height:40px}
   .admin-layout{grid-template-columns:1fr}
 }
+
+/* v0.4.9 manager self-sync */
+.calendar-tools{display:flex;align-items:center;gap:7px;justify-self:end}
+.manager-sync-btn{width:42px;height:42px;border-radius:13px;background:#efe3d0;color:var(--ink);font-size:19px;line-height:1}
+.manager-sync-btn:disabled{opacity:.55;cursor:wait}
+@media(max-width:700px){
+  .calendar-tools{gap:5px}
+  .manager-sync-btn{width:36px;height:36px;border-radius:12px;font-size:17px}
+}
+@media(max-width:390px){
+  .manager-sync-btn{width:34px;height:34px;border-radius:11px}
+}

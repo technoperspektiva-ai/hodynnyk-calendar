@@ -859,6 +859,41 @@ export default {
         return json({ ok:true,user,state:out });
       }
       if (path === '/api/action' && request.method === 'POST') return handleAction(request, env, user, state);
+      if (path === '/api/telegram/sync-self' && request.method === 'POST') {
+        if (!requireRole(user,['admin','manager'])) return json({ok:false,error:'Forbidden'},403);
+        try {
+          const updates = await telegramUpdates(env);
+          const chats = privateChatsFromUpdates(updates);
+          const telegramId = String(user.id || '');
+          const chat = chats.find(c => c.telegramId === telegramId);
+          if (!chat) {
+            return json({ ok:false, error:'Чат не знайдено. Відкрийте @HodynnykCalendar_bot, натисніть Start, надішліть будь-яке повідомлення і спробуйте ще раз.' },404);
+          }
+          const manager = state.managers.find(m => String(m.telegramId) === telegramId);
+          const preferredName = manager?.name || user.name || user.username || (telegramId === OWNER_TELEGRAM_ID ? 'Admin' : chat.name);
+          let recipient = state.recipients.find(r => String(r.telegramUserId || '') === telegramId);
+          if (!recipient) recipient = state.recipients.find(r => String(r.chatId || '') === chat.chatId);
+          if (recipient) {
+            recipient.chatId = chat.chatId;
+            recipient.telegramUserId = telegramId;
+            recipient.name = recipient.name && recipient.name !== 'Test' ? recipient.name : preferredName;
+            recipient.enabled = true;
+            recipient.syncedAt = new Date().toISOString();
+          } else {
+            recipient = {
+              id: crypto.randomUUID(), name: preferredName, chatId: chat.chatId,
+              telegramUserId: telegramId, enabled: true, createdAt: new Date().toISOString(),
+              syncedAt: new Date().toISOString()
+            };
+            state.recipients.push(recipient);
+          }
+          state.recipients = state.recipients.slice(-100);
+          await writeState(env, state);
+          return json({ ok:true, chatId:chat.chatId, telegramId, message:'Telegram синхронізовано' });
+        } catch (error) {
+          return json({ ok:false, error:String(error.message || error), ...telegramErrorFields(error) },502);
+        }
+      }
       if (path === '/api/telegram/sync' && request.method === 'POST') {
         if (!requireRole(user,['admin'])) return json({ok:false,error:'Forbidden'},403);
         try {

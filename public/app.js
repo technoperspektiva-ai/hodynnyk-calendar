@@ -132,7 +132,10 @@ function renderShell() {
             <button class="iconbtn month-arrow" id="prevMonth" aria-label="Попередній місяць">←</button>
             <button class="month-button" id="todayMonth" type="button"><span id="monthTitle"></span><small>натисни, щоб повернутись до сьогодні</small></button>
             <button class="iconbtn month-arrow" id="nextMonth" aria-label="Наступний місяць">→</button>
-            <button class="btn export-btn" id="exportExcel" type="button">Excel</button>
+            <div class="calendar-tools">
+              <button class="btn export-btn" id="exportExcel" type="button">Excel</button>
+              ${user.role === 'manager' ? '<button class="iconbtn manager-sync-btn" id="syncMyTelegram" type="button" aria-label="Синхронізувати Telegram" title="Синхронізувати Telegram">↻</button>' : ''}
+            </div>
           </div>
 
           <div class="month-summary" id="monthSummary"></div>
@@ -381,6 +384,24 @@ function setupEvents() {
     await refreshMonth();
   });
   $('#exportExcel').addEventListener('click', exportCurrentMonthXlsx);
+  $('#syncMyTelegram')?.addEventListener('click', syncMyTelegram);
+}
+
+async function syncMyTelegram() {
+  const btn = $('#syncMyTelegram');
+  if (!btn) return;
+  const old = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '…';
+  try {
+    const out = await api('/api/telegram/sync-self', { method:'POST' });
+    toast(out.message || 'Telegram синхронізовано');
+  } catch (error) {
+    toast(error.message || 'Не вдалося синхронізувати Telegram');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+  }
 }
 
 // Minimal dependency-free XLSX writer (ZIP store + inline strings).

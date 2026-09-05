@@ -73,3 +73,6 @@ The non-sensitive runtime values are now declared in `wrangler.jsonc`: `ADMIN_TE
 - Excel export now recognizes only explicit `qa` and `azs` day types.
 - Unknown/legacy day markers no longer export as AZS.
 - `detailForDate()` normalizes stored types before calendar/statistics/export use.
+
+## v0.4.9
+Manager calendar now has a compact Telegram self-sync button next to Excel. It calls `/api/telegram/sync-self` and only binds the currently authenticated manager/admin Telegram account to its private bot chat.
