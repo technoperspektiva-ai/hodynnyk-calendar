@@ -698,8 +698,8 @@ export default {
       if (privateResponse) return privateResponse;
     }
 
-    if (path === '/api/health') return json({ ok:true, app:'hodynnyk-calendar', version:'0.3.5' });
-    if (path === '/api/config') return json({ ok:true, authConfigured:authConfigured(env), app:'Hodynnyk', version:'0.3.5', botUsername:String(env.TELEGRAM_BOT_USERNAME || '') });
+    if (path === '/api/health') return json({ ok:true, app:'hodynnyk-calendar', version:'0.3.6' });
+    if (path === '/api/config') return json({ ok:true, authConfigured:authConfigured(env), app:'Hodynnyk', version:'0.3.6', botUsername:String(env.TELEGRAM_BOT_USERNAME || '') });
     if (path === '/api/auth/login') return telegramOidcLogin(request, env);
     if (path === '/api/auth/callback') {
       try { return await telegramOidcCallback(request, env, ctx); }
@@ -707,11 +707,24 @@ export default {
     }
     if (path === '/api/auth/logout') return redirect('/', { 'set-cookie': clearSessionCookie() });
 
+    // Explicit owner check used by the PWA gear button. This avoids silent failures
+    // caused by client-side/PWA navigation and never exposes private data to non-admins.
+    if (path === '/api/admin/check') {
+      const state = await readState(env);
+      const user = await currentUser(request, env, state);
+      const ownerId = String(env.ADMIN_TELEGRAM_ID || '375938798');
+      if (!user || user.role !== 'admin' || String(user.id || '') !== ownerId) {
+        return new Response('Not found', { status:404, headers:{ 'cache-control':'no-store' } });
+      }
+      const base = adminPath(env) || '/last-admin';
+      return json({ ok:true, role:'admin', userId:String(user.id), path:`${base}/` }, 200, { 'cache-control':'no-store' });
+    }
+
     // Private convenience entry for the owner account. The real ADMIN_PATH stays server-side.
     if (path === '/api/admin') {
       const state = await readState(env);
       const user = await currentUser(request, env, state);
-      const ownerId = '375938798';
+      const ownerId = String(env.ADMIN_TELEGRAM_ID || '375938798');
       const base = adminPath(env);
       if (!base || !user || user.role !== 'admin' || String(user.id || '') !== ownerId) {
         return new Response('Not found', { status:404, headers:{ 'cache-control':'no-store' } });
