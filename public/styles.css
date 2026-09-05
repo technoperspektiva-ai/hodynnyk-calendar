@@ -177,3 +177,5 @@
   .telegram-sync-actions{display:grid;grid-template-columns:1fr 1fr}
   .telegram-sync-actions .btn{width:100%;min-height:46px}
 }
+
+.denied-id-card{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 14px;border:1px solid rgba(89,66,52,.18);border-radius:14px;background:rgba(255,255,255,.55);margin:14px 0}.denied-id-card span{font-size:12px;opacity:.68;text-transform:uppercase;letter-spacing:.08em}.denied-id-card strong{font-size:18px;letter-spacing:.03em}.denied-id-card .btn{margin-left:auto}@media(max-width:520px){.denied-id-card{align-items:stretch}.denied-id-card strong{width:100%}.denied-id-card .btn{margin-left:0;width:100%}}

@@ -48,7 +48,7 @@ function finishBoot() {
   });
 }
 
-function loginScreen(message = '') {
+function loginScreen(message = '', deniedUser = null) {
   $('#app').innerHTML = `
     <main class="welcome-shell">
       <section class="welcome-content">
@@ -56,12 +56,18 @@ function loginScreen(message = '') {
         <span class="welcome-kicker">QA · АЗС · ТЕСТИ</span>
         <h2>Робочий календар без зайвого.</h2>
         <p>${message ? esc(message) : 'Увійди через Telegram, натисни дату та внеси день у кілька дотиків.'}</p>
+        ${deniedUser?.id ? `<div class="denied-id-card"><span>Telegram ID</span><strong>${esc(deniedUser.id)}</strong><button class="btn ghost copy-denied-id" type="button" data-id="${esc(deniedUser.id)}">Копіювати ID</button></div>` : ''}
         <div class="actions welcome-actions">
           ${config?.authConfigured ? '<a class="btn primary" href="/api/auth/login?return=/">Увійти через Telegram</a>' : '<span class="pill">Telegram login ще не налаштований</span>'}
           <button class="btn ghost" type="button" data-install-pwa hidden>Встановити PWA</button>
         </div>
       </section>
     </main>`;
+  $('.copy-denied-id')?.addEventListener('click', async (event) => {
+    const id = event.currentTarget.dataset.id || '';
+    try { await navigator.clipboard.writeText(id); toast('Telegram ID скопійовано'); }
+    catch { toast(`Telegram ID: ${id}`); }
+  });
   finishBoot();
 }
 
@@ -530,7 +536,7 @@ async function boot() {
     renderShell(); renderSummary(); renderCalendar(); setupEvents();
   } catch (error) {
     if (error.status === 401) return loginScreen();
-    if (error.status === 403) return loginScreen('Цей Telegram-акаунт ще не має доступу до календаря.');
+    if (error.status === 403) return loginScreen('Цей Telegram-акаунт ще не має доступу до календаря. Додай цей Telegram ID у Manager access.', error.data?.user || null);
     loginScreen(`Помилка підключення: ${error.message}`);
   }
 }
