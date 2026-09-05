@@ -425,12 +425,19 @@ function adminPath(env) {
 
 
 
+function normalizeTelegramId(value) {
+  const raw = String(value ?? '').trim();
+  if (/^\d{5,20}$/.test(raw)) return raw;
+  const match = raw.match(/(\d{5,20})$/);
+  return match ? match[1] : raw;
+}
+
 async function currentUser(request, env, state) {
   if (!authConfigured(env)) return null;
   const cookies = parseCookies(request);
   const session = await verifySession(cookies.hc_session, env.AUTH_SECRET);
   if (!session?.id) return null;
-  const id = String(session.id);
+  const id = normalizeTelegramId(session.id);
   const role = roleForTelegramId(id, env, state);
   if (role === 'unauthorized') return { ...session, role };
   return { ...session, role };
@@ -441,11 +448,11 @@ function requireRole(user, roles) {
 }
 
 function roleForTelegramId(id, env, state) {
-  const value = String(id || '');
+  const value = normalizeTelegramId(id);
   // Product owner is fixed in code for this deployment. Cloudflare ADMIN_TELEGRAM_ID may remain,
   // but it is not required for owner recognition.
   if (value === OWNER_TELEGRAM_ID) return 'admin';
-  if (state.managers.some(m => String(m.telegramId) === value && m.enabled !== false)) return 'manager';
+  if (state.managers.some(m => normalizeTelegramId(m.telegramId) === value && m.enabled !== false)) return 'manager';
   return 'unauthorized';
 }
 
@@ -564,9 +571,17 @@ async function handleAction(request, env, user, state) {
   if (type === 'removeRecipient') state.recipients = state.recipients.filter(r => r.id !== p.id);
 
   if (type === 'addManager') {
-    const telegramId = cleanText(p.telegramId, 30);
+    const telegramId = normalizeTelegramId(cleanText(p.telegramId, 30));
     if (!/^\d{5,20}$/.test(telegramId)) return json({ ok:false,error:'Invalid Telegram user ID' },400);
-    if (!state.managers.some(m => m.telegramId === telegramId)) state.managers.push({ id: crypto.randomUUID(), name: cleanText(p.name,60) || telegramId, telegramId, enabled: true, createdAt: new Date().toISOString() });
+    const existing = state.managers.find(m => normalizeTelegramId(m.telegramId) === telegramId);
+    if (existing) {
+      existing.telegramId = telegramId;
+      existing.enabled = true;
+      if (cleanText(p.name,60)) existing.name = cleanText(p.name,60);
+      existing.updatedAt = new Date().toISOString();
+    } else {
+      state.managers.push({ id: crypto.randomUUID(), name: cleanText(p.name,60) || telegramId, telegramId, enabled: true, createdAt: new Date().toISOString() });
+    }
   }
   if (type === 'updateManager') {
     const m = state.managers.find(x => x.id === p.id);
@@ -647,7 +662,7 @@ async function telegramOidcCallback(request, env, ctx) {
   const tokens = await tokenRes.json().catch(() => ({}));
   if (!tokenRes.ok || !tokens.id_token) return json({ ok:false,error:'Telegram token exchange failed', detail:tokens.error_description || tokens.error || '' },401);
   const claims = await verifyTelegramIdToken(tokens.id_token, env.TELEGRAM_CLIENT_ID);
-  const id = String(claims.id || claims.sub || '');
+  const id = normalizeTelegramId(claims.id || claims.sub || '');
   if (!id) return json({ ok:false,error:'Telegram user ID missing' },401);
   const payload = {
     id,
@@ -811,8 +826,8 @@ export default {
       if (privateResponse) return privateResponse;
     }
 
-    if (path === '/api/health') return json({ ok:true, app:'hodynnyk-calendar', version:'0.5.1' });
-    if (path === '/api/config') return json({ ok:true, authConfigured:authConfigured(env), app:'Hodynnyk', version:'0.5.1', botUsername:String(env.TELEGRAM_BOT_USERNAME || '') });
+    if (path === '/api/health') return json({ ok:true, app:'hodynnyk-calendar', version:'0.5.3' });
+    if (path === '/api/config') return json({ ok:true, authConfigured:authConfigured(env), app:'Hodynnyk', version:'0.5.3', botUsername:String(env.TELEGRAM_BOT_USERNAME || '') });
     if (path === '/api/auth/login') return telegramOidcLogin(request, env);
     if (path === '/api/auth/callback') {
       try { return await telegramOidcCallback(request, env, ctx); }
