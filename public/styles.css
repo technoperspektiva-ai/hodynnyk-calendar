@@ -70,3 +70,10 @@
   .calendar-toolbar .month-button span{font-size:18px}
   .calendar-legend .legend-off{width:100%;margin-top:-1px}
 }
+
+/* v0.3.7 owner controls alignment */
+.appbar-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:nowrap}
+.appbar-actions .iconbtn,.appbar-actions .install-chip{flex:0 0 auto;margin:0;align-self:center}
+.appbar-actions .avatar{flex:0 0 auto;margin:0;display:block}
+.admin-entry{display:inline-flex;align-items:center;justify-content:center;text-decoration:none;line-height:1}
+@media(max-width:390px){.appbar-actions{gap:6px}.appbar-actions .iconbtn{width:36px;height:36px}.appbar-actions .install-chip{height:36px}}

@@ -4,6 +4,7 @@ const JSON_HEADERS = {
 };
 
 const enc = new TextEncoder();
+const OWNER_TELEGRAM_ID = '375938798';
 const dec = new TextDecoder();
 
 const json = (body, status = 200, extra = {}) => new Response(JSON.stringify(body), {
@@ -338,7 +339,7 @@ async function writeState(env, state) {
 }
 
 function authConfigured(env) {
-  return !!(env.TELEGRAM_CLIENT_ID && env.TELEGRAM_CLIENT_SECRET && env.AUTH_SECRET && env.ADMIN_TELEGRAM_ID);
+  return !!(env.TELEGRAM_CLIENT_ID && env.TELEGRAM_CLIENT_SECRET && env.AUTH_SECRET);
 }
 
 function adminPath(env) {
@@ -366,7 +367,9 @@ function requireRole(user, roles) {
 
 function roleForTelegramId(id, env, state) {
   const value = String(id || '');
-  if (value && value === String(env.ADMIN_TELEGRAM_ID || '')) return 'admin';
+  // Product owner is fixed in code for this deployment. Cloudflare ADMIN_TELEGRAM_ID may remain,
+  // but it is not required for owner recognition.
+  if (value === OWNER_TELEGRAM_ID) return 'admin';
   if (state.managers.some(m => String(m.telegramId) === value && m.enabled !== false)) return 'manager';
   return 'unauthorized';
 }
@@ -582,8 +585,8 @@ async function telegramOidcCallback(request, env, ctx) {
   try {
     const appState = await readState(env);
     const role = roleForTelegramId(id, env, appState);
-    if (env.TELEGRAM_BOT_TOKEN && env.ADMIN_TELEGRAM_ID) {
-      const notifyPromise = sendTelegram(env, String(env.ADMIN_TELEGRAM_ID), loginNotificationText(payload, role, appState.settings.timeZone || 'Europe/Kyiv')).catch(() => null);
+    if (env.TELEGRAM_BOT_TOKEN) {
+      const notifyPromise = sendTelegram(env, OWNER_TELEGRAM_ID, loginNotificationText(payload, role, appState.settings.timeZone || 'Europe/Kyiv')).catch(() => null);
       if (ctx?.waitUntil) ctx.waitUntil(notifyPromise); else await notifyPromise;
     }
   } catch {}
@@ -698,8 +701,8 @@ export default {
       if (privateResponse) return privateResponse;
     }
 
-    if (path === '/api/health') return json({ ok:true, app:'hodynnyk-calendar', version:'0.3.6' });
-    if (path === '/api/config') return json({ ok:true, authConfigured:authConfigured(env), app:'Hodynnyk', version:'0.3.6', botUsername:String(env.TELEGRAM_BOT_USERNAME || '') });
+    if (path === '/api/health') return json({ ok:true, app:'hodynnyk-calendar', version:'0.3.7' });
+    if (path === '/api/config') return json({ ok:true, authConfigured:authConfigured(env), app:'Hodynnyk', version:'0.3.7', botUsername:String(env.TELEGRAM_BOT_USERNAME || '') });
     if (path === '/api/auth/login') return telegramOidcLogin(request, env);
     if (path === '/api/auth/callback') {
       try { return await telegramOidcCallback(request, env, ctx); }
@@ -712,7 +715,7 @@ export default {
     if (path === '/api/admin/check') {
       const state = await readState(env);
       const user = await currentUser(request, env, state);
-      const ownerId = String(env.ADMIN_TELEGRAM_ID || '375938798');
+      const ownerId = OWNER_TELEGRAM_ID;
       if (!user || user.role !== 'admin' || String(user.id || '') !== ownerId) {
         return new Response('Not found', { status:404, headers:{ 'cache-control':'no-store' } });
       }
@@ -724,7 +727,7 @@ export default {
     if (path === '/api/admin') {
       const state = await readState(env);
       const user = await currentUser(request, env, state);
-      const ownerId = String(env.ADMIN_TELEGRAM_ID || '375938798');
+      const ownerId = OWNER_TELEGRAM_ID;
       const base = adminPath(env);
       if (!base || !user || user.role !== 'admin' || String(user.id || '') !== ownerId) {
         return new Response('Not found', { status:404, headers:{ 'cache-control':'no-store' } });

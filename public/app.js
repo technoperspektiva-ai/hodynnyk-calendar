@@ -118,7 +118,7 @@ function renderShell() {
         </div>
         <div class="appbar-actions">
           ${user?.picture ? `<img class="avatar" src="${esc(user.picture)}" alt="">` : ''}
-          ${String(user?.id || '') === '375938798' && user?.role === 'admin' ? '<button class="iconbtn soft admin-entry" type="button" aria-label="Адмін-панель" title="Адмін-панель" data-admin-entry>⚙</button>' : ''}
+          ${String(user?.id || '') === '375938798' ? '<a class="iconbtn soft admin-entry" href="/last-admin/" aria-label="Адмін-панель" title="Адмін-панель">⚙</a>' : ''}
           <button class="install-chip" type="button" data-install-pwa hidden aria-label="Встановити PWA" title="Встановити PWA">PWA</button>
           <a class="iconbtn soft" href="/api/auth/logout" aria-label="Вийти">↗</a>
         </div>
@@ -149,25 +149,6 @@ function renderShell() {
     </main>
     <div id="modalRoot"></div>`;
   finishBoot();
-  const adminEntry = $('[data-admin-entry]');
-  if (adminEntry) {
-    adminEntry.addEventListener('click', async () => {
-      adminEntry.disabled = true;
-      adminEntry.setAttribute('aria-busy', 'true');
-      try {
-        const check = await api('/api/admin/check');
-        if (!check?.ok || check?.role !== 'admin' || String(check?.userId || '') !== '375938798') {
-          throw new Error('Адмін-доступ не підтверджено');
-        }
-        window.location.assign(check.path || '/last-admin/');
-      } catch (error) {
-        toast(error.message || 'Не вдалося відкрити адмін-панель');
-      } finally {
-        adminEntry.disabled = false;
-        adminEntry.removeAttribute('aria-busy');
-      }
-    });
-  }
 }
 
 function renderSummary() {
