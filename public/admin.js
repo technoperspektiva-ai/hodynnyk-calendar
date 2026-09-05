@@ -27,7 +27,6 @@ function renderRecipients(){
   const rows=state.recipients||[];
   $('#recipients').innerHTML=`
     <div class="section-title"><h2>Telegram recipients</h2><span>${rows.length}</span></div>
-    <div class="helper" style="margin-bottom:14px">Сюди приходять автоматичні та ручні повідомлення через ${config?.botUsername ? '@'+esc(config.botUsername) : 'Telegram-бота'}. «Запустити QA-перевірку» завжди надсилає результат у Telegram: і коли завтра є QA OFF, і коли його немає. Автоматична перевірка за розкладом надсилає повідомлення лише за наявності QA OFF.</div>
     <div class="formrow"><div class="field"><label>Назва</label><input id="rName" class="input" placeholder="QA Lead"></div><div class="field"><label>Telegram chat ID</label><input id="rChat" class="input" placeholder="123456789 або -100…"></div></div>
     <button class="btn primary" id="addRecipient">Додати отримувача</button>
     <div class="list" style="margin-top:14px">${rows.length?rows.map(r=>`<div class="rowitem"><div><div class="name">${esc(r.name)}</div><div class="meta">${esc(r.chatId)}</div></div><div class="actions"><button class="switch ${r.enabled!==false?'on':''}" data-toggle-r="${esc(r.id)}" aria-label="toggle"></button><button class="btn ghost" data-test-r="${esc(r.id)}">test</button><button class="btn danger" data-del-r="${esc(r.id)}">×</button></div></div>`).join(''):'<div class="empty">Отримувачів поки немає.</div>'}</div>
@@ -58,7 +57,6 @@ function renderManagers(){
   const rows=state.managers||[];
   $('#managers').innerHTML=`
     <div class="section-title"><h2>Manager access</h2><span>${rows.length}</span></div>
-    <div class="helper" style="margin-bottom:14px">Керівник входить через Telegram, бачить календар і лічильник та може змінити тільки місячну планку тестів.</div>
     <div class="formrow"><div class="field"><label>Ім'я</label><input id="mName" class="input" placeholder="QA Manager"></div><div class="field"><label>Telegram user ID</label><input id="mId" class="input" placeholder="123456789"></div></div>
     <button class="btn primary" id="addManager">Додати керівника</button>
     <div class="list" style="margin-top:14px">${rows.length?rows.map(m=>`<div class="rowitem"><div><div class="name">${esc(m.name)}</div><div class="meta">Telegram ID ${esc(m.telegramId)}</div></div><div class="actions"><button class="switch ${m.enabled!==false?'on':''}" data-toggle-m="${esc(m.id)}"></button><button class="btn danger" data-del-m="${esc(m.id)}">×</button></div></div>`).join(''):'<div class="empty">Доступ керівнику ще не доданий.</div>'}</div>`;
@@ -115,7 +113,6 @@ function renderLogs(){
   const all=[...(state.notificationLog||[])].reverse();
   const rows=all.slice(0,100);
   $('#logs').innerHTML=`<div class="section-title"><h2>Telegram logs</h2><span>${all.length}</span></div>
-    <div class="helper" style="margin-bottom:14px">Показуємо точну відповідь Telegram API: chat_id, HTTP/error code та опис помилки. У TXT експортується весь журнал (${all.length} записів).</div>
     ${rows.length?`<div style="overflow:auto"><table class="table"><thead><tr><th>Коли</th><th>Тип</th><th>Кому / chat_id</th><th>Статус</th><th>Деталі</th></tr></thead><tbody>${rows.map(l=>`<tr><td>${esc(l.at?new Date(l.at).toLocaleString('uk-UA'):'—')}</td><td>${esc(logTypeLabel(l))}</td><td><div>${esc(l.recipientName||'—')}</div><div class="meta">${esc(l.chatId||'—')}</div></td><td class="${l.status==='sent'?'success':'error'}">${esc(String(l.status||'—').toUpperCase())}</td><td class="log-detail">${esc(l.status==='error'?logErrorText(l):(l.text||'OK'))}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Відправок ще не було.</div>'}
     <div class="actions" style="margin-top:14px"><button class="btn" id="downloadLogs">Зберегти TXT</button><button class="btn danger" id="clearLogs">Очистити журнал</button></div>`;
   $('#downloadLogs').onclick=logsToTxt;

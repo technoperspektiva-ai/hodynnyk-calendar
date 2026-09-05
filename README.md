@@ -1,4 +1,4 @@
-## v0.4.3
+## v0.4.4
 
 - Telegram delivery log now shows exact Telegram API error details, chat_id, type and time.
 - Failed test notifications are persisted in the log.
