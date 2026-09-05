@@ -1,5 +1,10 @@
-## v0.4.2
-- Header renamed to «Календарь робочих днів» with PWA icon.
+## v0.4.3
+
+- Telegram delivery log now shows exact Telegram API error details, chat_id, type and time.
+- Failed test notifications are persisted in the log.
+- Admin can export the complete Telegram delivery log to UTF-8 TXT on the device.
+- Keeps v0.4.2 calendar/header/admin cleanup behavior.
+
 - Removed PWA install button from admin panel.
 - Keeps v0.4.1 strict Excel work-type filtering.
 

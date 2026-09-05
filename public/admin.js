@@ -39,7 +39,7 @@ function renderRecipients(){
   $('#addRecipient').onclick=async()=>{try{await action('addRecipient',{name:$('#rName').value,chatId:$('#rChat').value});toast('Отримувача додано')}catch(e){toast(e.message)}};
   $$('[data-toggle-r]').forEach(b=>b.onclick=async()=>{const r=rows.find(x=>x.id===b.dataset.toggleR);await action('updateRecipient',{id:r.id,enabled:r.enabled===false});});
   $$('[data-del-r]').forEach(b=>b.onclick=async()=>{if(confirm('Видалити отримувача?'))await action('removeRecipient',{id:b.dataset.delR})});
-  $$('[data-test-r]').forEach(b=>b.onclick=async()=>{try{await api('/api/telegram/test',{method:'POST',body:JSON.stringify({recipientId:b.dataset.testR})});toast('Тест надіслано');await reload()}catch(e){toast(e.message)}});
+  $$('[data-test-r]').forEach(b=>b.onclick=async()=>{try{await api('/api/telegram/test',{method:'POST',body:JSON.stringify({recipientId:b.dataset.testR})});toast('Тест надіслано')}catch(e){toast(e.message)}finally{await reload().catch(()=>{})}});
   $('#sendTomorrow').onclick=async()=>{
     try{
       const d=await api('/api/notifications/tomorrow',{method:'POST',body:'{}'});
@@ -67,11 +67,58 @@ function renderManagers(){
   $$('[data-del-m]').forEach(b=>b.onclick=async()=>{if(confirm('Прибрати доступ керівника?'))await action('removeManager',{id:b.dataset.delM})});
 }
 
+function logTypeLabel(l){
+  if(l.type==='test') return 'Тест';
+  if(l.type==='manual-tomorrow') return 'Ручний пуш';
+  return l.key?.startsWith('test:') ? 'Тест' : 'Cron / перевірка';
+}
+function logErrorText(l){
+  const parts=[];
+  if(l.telegramDescription) parts.push(l.telegramDescription);
+  else if(l.error) parts.push(l.error);
+  if(l.telegramErrorCode) parts.push(`Telegram code: ${l.telegramErrorCode}`);
+  if(l.httpStatus) parts.push(`HTTP: ${l.httpStatus}`);
+  if(l.errorKind && l.errorKind!=='telegram') parts.push(`Kind: ${l.errorKind}`);
+  if(l.telegramParameters?.retry_after) parts.push(`Retry after: ${l.telegramParameters.retry_after}s`);
+  if(l.telegramParameters?.migrate_to_chat_id) parts.push(`Migrate chat_id: ${l.telegramParameters.migrate_to_chat_id}`);
+  return parts.join(' · ') || '—';
+}
+function logsToTxt(){
+  const rows=[...(state.notificationLog||[])].reverse();
+  const lines=[
+    'Календарь робочих днів — Telegram delivery log',
+    `Exported: ${new Date().toLocaleString('uk-UA')}`,
+    `Entries: ${rows.length}`,
+    '='.repeat(72),
+    ''
+  ];
+  rows.forEach((l,i)=>{
+    lines.push(`#${i+1}`);
+    lines.push(`Time: ${l.at ? new Date(l.at).toLocaleString('uk-UA') : '—'}`);
+    lines.push(`Type: ${logTypeLabel(l)}`);
+    lines.push(`Recipient: ${l.recipientName || '—'}`);
+    lines.push(`Chat ID: ${l.chatId || '—'}`);
+    lines.push(`Status: ${String(l.status||'—').toUpperCase()}`);
+    lines.push(`Date: ${l.date || '—'}`);
+    if(l.text) lines.push(`Message: ${String(l.text).replace(/\n/g,' | ')}`);
+    if(l.status==='error') lines.push(`Error: ${logErrorText(l)}`);
+    lines.push('-'.repeat(72));
+  });
+  const blob=new Blob(['\uFEFF'+lines.join('\n')],{type:'text/plain;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  const stamp=new Date().toISOString().replace(/[:.]/g,'-');
+  a.href=url;a.download=`hodynnyk-telegram-log-${stamp}.txt`;document.body.appendChild(a);a.click();a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+}
 function renderLogs(){
-  const rows=[...(state.notificationLog||[])].reverse().slice(0,80);
-  $('#logs').innerHTML=`<div class="section-title"><h2>Delivery log</h2><span>${rows.length}</span></div>
-    ${rows.length?`<div style="overflow:auto"><table class="table"><thead><tr><th>Коли</th><th>Кому</th><th>Статус</th><th>Дата</th></tr></thead><tbody>${rows.map(l=>`<tr><td>${esc(new Date(l.at).toLocaleString('uk-UA'))}</td><td>${esc(l.recipientName||l.chatId||'—')}</td><td class="${l.status==='sent'?'success':'error'}">${esc(l.status)}</td><td>${esc(l.date || (l.type==='manual-tomorrow'?'manual':'test'))}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Відправок ще не було.</div>'}
-    <div class="actions" style="margin-top:14px"><button class="btn danger" id="clearLogs">Очистити журнал</button></div>`;
+  const all=[...(state.notificationLog||[])].reverse();
+  const rows=all.slice(0,100);
+  $('#logs').innerHTML=`<div class="section-title"><h2>Telegram logs</h2><span>${all.length}</span></div>
+    <div class="helper" style="margin-bottom:14px">Показуємо точну відповідь Telegram API: chat_id, HTTP/error code та опис помилки. У TXT експортується весь журнал (${all.length} записів).</div>
+    ${rows.length?`<div style="overflow:auto"><table class="table"><thead><tr><th>Коли</th><th>Тип</th><th>Кому / chat_id</th><th>Статус</th><th>Деталі</th></tr></thead><tbody>${rows.map(l=>`<tr><td>${esc(l.at?new Date(l.at).toLocaleString('uk-UA'):'—')}</td><td>${esc(logTypeLabel(l))}</td><td><div>${esc(l.recipientName||'—')}</div><div class="meta">${esc(l.chatId||'—')}</div></td><td class="${l.status==='sent'?'success':'error'}">${esc(String(l.status||'—').toUpperCase())}</td><td class="log-detail">${esc(l.status==='error'?logErrorText(l):(l.text||'OK'))}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Відправок ще не було.</div>'}
+    <div class="actions" style="margin-top:14px"><button class="btn" id="downloadLogs">Зберегти TXT</button><button class="btn danger" id="clearLogs">Очистити журнал</button></div>`;
+  $('#downloadLogs').onclick=logsToTxt;
   $('#clearLogs').onclick=async()=>{if(confirm('Очистити журнал?'))await action('clearLogs',{})};
 }
 

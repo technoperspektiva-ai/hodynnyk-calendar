@@ -230,15 +230,38 @@ function validateTime(v) {
 }
 
 async function sendTelegram(env, chatId, text) {
-  if (!env.TELEGRAM_BOT_TOKEN) throw new Error('TELEGRAM_BOT_TOKEN is not configured');
+  if (!env.TELEGRAM_BOT_TOKEN) {
+    const error = new Error('TELEGRAM_BOT_TOKEN is not configured');
+    error.kind = 'config';
+    throw error;
+  }
   const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/sendMessage`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true })
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok || data.ok === false) throw new Error(data.description || `Telegram HTTP ${res.status}`);
+  if (!res.ok || data.ok === false) {
+    const error = new Error(data.description || `Telegram HTTP ${res.status}`);
+    error.kind = 'telegram';
+    error.httpStatus = res.status;
+    error.telegramErrorCode = data.error_code || null;
+    error.telegramDescription = data.description || null;
+    error.telegramParameters = data.parameters || null;
+    throw error;
+  }
   return data;
+}
+
+function telegramErrorFields(error) {
+  return {
+    error: String(error?.message || error || 'Unknown error'),
+    errorKind: error?.kind || 'unknown',
+    httpStatus: Number.isFinite(error?.httpStatus) ? error.httpStatus : null,
+    telegramErrorCode: error?.telegramErrorCode || null,
+    telegramDescription: error?.telegramDescription || null,
+    telegramParameters: error?.telegramParameters || null
+  };
 }
 
 function notificationText(absence, dateOverride = '') {
@@ -625,7 +648,7 @@ async function runNotificationCycle(env, force = false) {
       state.notificationLog.push({ id:crypto.randomUUID(), key, date:tomorrow, recipientId:recipient.id, recipientName:recipient.name, chatId:recipient.chatId, status:'sent', text, at:new Date().toISOString() });
       results.push({ recipient:recipient.name, status:'sent' });
     } catch (error) {
-      state.notificationLog.push({ id:crypto.randomUUID(), key, date:tomorrow, recipientId:recipient.id, recipientName:recipient.name, chatId:recipient.chatId, status:'error', error:String(error.message || error), at:new Date().toISOString() });
+      state.notificationLog.push({ id:crypto.randomUUID(), key, date:tomorrow, recipientId:recipient.id, recipientName:recipient.name, chatId:recipient.chatId, status:'error', ...telegramErrorFields(error), at:new Date().toISOString() });
       results.push({ recipient:recipient.name, status:'error', error:String(error.message || error) });
     }
   }
@@ -660,7 +683,7 @@ async function sendTomorrowShiftNow(env) {
       state.notificationLog.push({
         id:crypto.randomUUID(), key:`manual:${Date.now()}:${recipient.chatId}`, type:'manual-tomorrow',
         date:tomorrow, recipientId:recipient.id, recipientName:recipient.name, chatId:recipient.chatId,
-        status:'error', error:String(error.message || error), at:new Date().toISOString()
+        status:'error', ...telegramErrorFields(error), at:new Date().toISOString()
       });
       results.push({ recipient:recipient.name, status:'error', error:String(error.message || error) });
     }
@@ -803,7 +826,16 @@ export default {
           state.notificationLog.push({ id:crypto.randomUUID(), key:`test:${Date.now()}`, recipientId:recipient.id, recipientName:recipient.name, chatId:recipient.chatId, status:'sent', text:'Test notification', at:new Date().toISOString() });
           await writeState(env,state);
           return json({ok:true});
-        } catch (error) { return json({ok:false,error:String(error.message || error)},502); }
+        } catch (error) {
+          state.notificationLog.push({
+            id:crypto.randomUUID(), key:`test:${Date.now()}`, type:'test', recipientId:recipient.id,
+            recipientName:recipient.name, chatId:recipient.chatId, status:'error', text:'Test notification',
+            ...telegramErrorFields(error), at:new Date().toISOString()
+          });
+          state.notificationLog = state.notificationLog.slice(-300);
+          await writeState(env,state);
+          return json({ok:false,...telegramErrorFields(error)},502);
+        }
       }
       if (path === '/api/notifications/run' && request.method === 'POST') {
         if (!requireRole(user,['admin'])) return json({ok:false,error:'Forbidden'},403);
