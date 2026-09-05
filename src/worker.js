@@ -6,7 +6,7 @@ const JSON_HEADERS = {
 const enc = new TextEncoder();
 const OWNER_TELEGRAM_ID = '375938798';
 const dec = new TextDecoder();
-const ADMIN_SHELL_HTML = "<!doctype html><html lang=\"uk\"><head>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<meta name=\"theme-color\" content=\"#f4ead6\"><meta name=\"color-scheme\" content=\"light\">\n<meta name=\"description\" content=\"Hodynnyk control panel.\"><meta name=\"robots\" content=\"noindex,nofollow,noarchive\">\n<meta name=\"mobile-web-app-capable\" content=\"yes\"><meta name=\"apple-mobile-web-app-capable\" content=\"yes\"><meta name=\"apple-mobile-web-app-status-bar-style\" content=\"default\"><meta name=\"apple-mobile-web-app-title\" content=\"Hodynnyk\">\n<link rel=\"apple-touch-icon\" href=\"/icons/apple-touch-icon.png\"><link rel=\"icon\" type=\"image/png\" sizes=\"192x192\" href=\"/icons/icon-192.png\"><link rel=\"stylesheet\" href=\"/styles.css\"><title>Hodynnyk</title>\n</head><body><div id=\"app\"></div><div id=\"toast\" class=\"toast\"></div><script src=\"./app.js\" defer></script></body></html>\n";
+const ADMIN_SHELL_HTML = "<!doctype html><html lang=\"uk\"><head>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<meta name=\"theme-color\" content=\"#f4ead6\"><meta name=\"color-scheme\" content=\"light\">\n<meta name=\"description\" content=\"Календарь робочих днів — control panel.\"><meta name=\"robots\" content=\"noindex,nofollow,noarchive\">\n<meta name=\"mobile-web-app-capable\" content=\"yes\"><meta name=\"apple-mobile-web-app-capable\" content=\"yes\"><meta name=\"apple-mobile-web-app-status-bar-style\" content=\"default\"><meta name=\"apple-mobile-web-app-title\" content=\"Календарь робочих днів\">\n<link rel=\"apple-touch-icon\" href=\"/icons/apple-touch-icon.png\"><link rel=\"icon\" type=\"image/png\" sizes=\"192x192\" href=\"/icons/icon-192.png\"><link rel=\"stylesheet\" href=\"/styles.css\"><title>Календарь робочих днів</title>\n</head><body><div id=\"app\"></div><div id=\"toast\" class=\"toast\"></div><script src=\"./app.js\" defer></script></body></html>\n";
 
 const json = (body, status = 200, extra = {}) => new Response(JSON.stringify(body), {
   status,
@@ -241,9 +241,17 @@ async function sendTelegram(env, chatId, text) {
   return data;
 }
 
-function notificationText(absence) {
-  const [y,m,d] = absence.date.split('-');
-  return `Hodynnyk · QA availability\nЗавтра, ${d}.${m}.${y}, я буду відсутній на QA.\nНедоступність: ${absence.qaStart}–${absence.qaEnd}.`;
+function notificationText(absence, dateOverride = '') {
+  const date = absence?.date || dateOverride;
+  const [y,m,d] = String(date).split('-');
+  if (absence) {
+    return `Hodynnyk · QA availability
+Завтра, ${d}.${m}.${y}, я буду відсутній на QA.
+Недоступність: ${absence.qaStart}–${absence.qaEnd}.`;
+  }
+  return `Hodynnyk · QA availability
+Завтра, ${d}.${m}.${y}, QA OFF немає.
+Статус: доступний за звичайним графіком.`;
 }
 
 function tomorrowShiftText(date, shift, absence) {
@@ -601,9 +609,10 @@ async function runNotificationCycle(env, force = false) {
   if (!force && local.hour !== notifyHour) return { ok:true, skipped:'hour', local };
   const tomorrow = addDays(local.date, 1);
   const absence = absenceForDate(tomorrow, state);
-  if (!absence) return { ok:true, skipped:'no-absence', tomorrow };
+  if (!absence && !force) return { ok:true, skipped:'no-absence', tomorrow };
   const active = state.recipients.filter(r => r.enabled !== false);
-  const text = notificationText(absence);
+  if (!active.length) return { ok:true, skipped:'no-recipients', tomorrow, absence };
+  const text = notificationText(absence, tomorrow);
   const results = [];
   for (const recipient of active) {
     const key = `${tomorrow}:${recipient.chatId}`;
@@ -736,8 +745,8 @@ export default {
       if (privateResponse) return privateResponse;
     }
 
-    if (path === '/api/health') return json({ ok:true, app:'hodynnyk-calendar', version:'0.3.9' });
-    if (path === '/api/config') return json({ ok:true, authConfigured:authConfigured(env), app:'Hodynnyk', version:'0.3.9', botUsername:String(env.TELEGRAM_BOT_USERNAME || '') });
+    if (path === '/api/health') return json({ ok:true, app:'hodynnyk-calendar', version:'0.4.0' });
+    if (path === '/api/config') return json({ ok:true, authConfigured:authConfigured(env), app:'Hodynnyk', version:'0.4.0', botUsername:String(env.TELEGRAM_BOT_USERNAME || '') });
     if (path === '/api/auth/login') return telegramOidcLogin(request, env);
     if (path === '/api/auth/callback') {
       try { return await telegramOidcCallback(request, env, ctx); }

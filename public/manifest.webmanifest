@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "Hodynnyk Calendar",
-  "short_name": "Hodynnyk",
-  "description": "Календар QA, АЗС та місячного прогресу тестів.",
+  "name": "Календарь робочих днів",
+  "short_name": "Календарь",
+  "description": "Календар робочих днів QA та АЗС із місячним прогресом тестів.",
   "lang": "uk",
   "start_url": "/",
   "scope": "/",

@@ -5,11 +5,11 @@ let state=null, user=null, config=null;
 function toast(text){const el=$('#toast');el.textContent=text;el.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove('show'),2200)}
 async function api(url,options={}){const r=await fetch(url,{...options,headers:{'content-type':'application/json',...(options.headers||{})}});const d=await r.json().catch(()=>({}));if(!r.ok){const e=new Error(d.error||`HTTP ${r.status}`);e.status=r.status;e.data=d;throw e}return d}
 
-function blocked(message){$('#app').innerHTML=`<main class="shell login"><section class="card loginbox"><div class="loginmark">H</div><h1>Hodynnyk</h1><p>${esc(message)}</p><div class="actions" style="justify-content:center;margin-top:18px"><a class="btn" href="/">← Календар</a>${message.includes('авториза')?`<a class="btn primary" href="/api/auth/login?return=${encodeURIComponent(location.pathname)}">Telegram login</a>`:''}</div></section></main>`}
+function blocked(message){$('#app').innerHTML=`<main class="shell login"><section class="card loginbox"><img class="brand-icon login-brand-icon" src="/icons/icon-192.png" alt=""><h1>Календарь робочих днів</h1><p>${esc(message)}</p><div class="actions" style="justify-content:center;margin-top:18px"><a class="btn" href="/">← Календар</a>${message.includes('авториза')?`<a class="btn primary" href="/api/auth/login?return=${encodeURIComponent(location.pathname)}">Telegram login</a>`:''}</div></section></main>`}
 
 function shell(){
   $('#app').innerHTML=`<main class="shell">
-    <header class="topbar"><div class="brand"><div class="brandmark">H</div><div><h1>Hodynnyk</h1><small>CONTROL</small></div></div><div class="userbar"><span class="pill green">Admin</span><span class="pill">${esc(user.name||user.username||user.id)}</span><button class="btn ghost" type="button" data-install-pwa hidden>Встановити</button><a class="btn ghost" href="/">Календар</a>${config.authConfigured?'<a class="btn ghost" href="/api/auth/logout">Вийти</a>':''}</div></header>
+    <header class="topbar"><div class="brand"><img class="brand-icon" src="/icons/icon-192.png" alt=""><div><h1>Календарь робочих днів</h1><small>CONTROL</small></div></div><div class="userbar"><span class="pill green">Admin</span><span class="pill">${esc(user.name||user.username||user.id)}</span><a class="btn ghost" href="/">Календар</a>${config.authConfigured?'<a class="btn ghost" href="/api/auth/logout">Вийти</a>':''}</div></header>
     <section class="admin-layout">
       <aside class="card side"><a class="active" href="#recipients">Recipients</a><a href="#managers">Managers</a><a href="#logs">Delivery log</a></aside>
       <div class="stack">
@@ -27,7 +27,7 @@ function renderRecipients(){
   const rows=state.recipients||[];
   $('#recipients').innerHTML=`
     <div class="section-title"><h2>Telegram recipients</h2><span>${rows.length}</span></div>
-    <div class="helper" style="margin-bottom:14px">Сюди приходять автоматичні та ручні повідомлення через ${config?.botUsername ? '@'+esc(config.botUsername) : 'Telegram-бота'}. Ручний пуш «про завтра» відправиться тільки якщо на завтра є запланована зміна АЗС.</div>
+    <div class="helper" style="margin-bottom:14px">Сюди приходять автоматичні та ручні повідомлення через ${config?.botUsername ? '@'+esc(config.botUsername) : 'Telegram-бота'}. «Запустити QA-перевірку» завжди надсилає результат у Telegram: і коли завтра є QA OFF, і коли його немає. Автоматична перевірка за розкладом надсилає повідомлення лише за наявності QA OFF.</div>
     <div class="formrow"><div class="field"><label>Назва</label><input id="rName" class="input" placeholder="QA Lead"></div><div class="field"><label>Telegram chat ID</label><input id="rChat" class="input" placeholder="123456789 або -100…"></div></div>
     <button class="btn primary" id="addRecipient">Додати отримувача</button>
     <div class="list" style="margin-top:14px">${rows.length?rows.map(r=>`<div class="rowitem"><div><div class="name">${esc(r.name)}</div><div class="meta">${esc(r.chatId)}</div></div><div class="actions"><button class="switch ${r.enabled!==false?'on':''}" data-toggle-r="${esc(r.id)}" aria-label="toggle"></button><button class="btn ghost" data-test-r="${esc(r.id)}">test</button><button class="btn danger" data-del-r="${esc(r.id)}">×</button></div></div>`).join(''):'<div class="empty">Отримувачів поки немає.</div>'}</div>
@@ -49,7 +49,7 @@ function renderRecipients(){
       await reload();
     }catch(e){toast(e.message)}
   };
-  $('#runNow').onclick=async()=>{try{const d=await api('/api/notifications/run',{method:'POST',body:'{}'});toast(d.skipped==='no-absence'?'На завтра QA OFF немає':'Перевірку виконано');await reload()}catch(e){toast(e.message)}};
+  $('#runNow').onclick=async()=>{try{const d=await api('/api/notifications/run',{method:'POST',body:'{}'});if(d.skipped==='no-recipients') toast('Немає активних отримувачів');else {const sent=(d.results||[]).filter(x=>x.status==='sent').length;toast(`Перевірку надіслано: ${sent}`)}await reload()}catch(e){toast(e.message)}};
 }
 
 function $$(s,root=document){return [...root.querySelectorAll(s)]}

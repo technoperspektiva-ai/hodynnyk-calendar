@@ -52,7 +52,7 @@ function loginScreen(message = '') {
   $('#app').innerHTML = `
     <main class="welcome-shell">
       <section class="welcome-content">
-        <div class="brand warm-brand"><div class="brandmark">H</div><div><h1>Hodynnyk</h1><small>WORK CALENDAR</small></div></div>
+        <div class="brand warm-brand"><img class="brand-icon" src="/icons/icon-192.png" alt=""><div><h1>Календарь робочих днів</h1><small>WORK CALENDAR</small></div></div>
         <span class="welcome-kicker">QA · АЗС · ТЕСТИ</span>
         <h2>Робочий календар без зайвого.</h2>
         <p>${message ? esc(message) : 'Увійди через Telegram, натисни дату та внеси день у кілька дотиків.'}</p>
@@ -69,8 +69,10 @@ function detailForDate(date) {
   const raw = state?.dayDetails?.[date] || {};
   const fallbackTypes = Array.isArray(state?.workLog?.[date]) ? state.workLog[date] : [];
   const shift = (state?.shifts || []).find(s => s.date === date);
+  const sourceTypes = Array.isArray(raw.types) ? raw.types : fallbackTypes;
+  const types = [...new Set(sourceTypes.filter(t => t === 'qa' || t === 'azs'))];
   return {
-    types: Array.isArray(raw.types) ? raw.types : fallbackTypes,
+    types,
     tests: Math.max(0, Number(raw.tests || 0)),
     start: raw.start || shift?.start || '',
     end: raw.end || '',
@@ -113,8 +115,8 @@ function renderShell() {
     <main class="calendar-app role-${esc(user.role)}">
       <header class="appbar">
         <div class="brand compact-brand">
-          <div class="brandmark">H</div>
-          <div><h1>Hodynnyk</h1><small>${esc(roleLabel())}</small></div>
+          <img class="brand-icon" src="/icons/icon-192.png" alt="">
+          <div><h1>Календарь робочих днів</h1><small>${esc(roleLabel())}</small></div>
         </div>
         <div class="appbar-actions">
           ${user?.picture ? `<img class="avatar" src="${esc(user.picture)}" alt="">` : ''}
@@ -433,7 +435,10 @@ function exportCurrentMonthXlsx() {
     const date = `${year}-${pad(month)}-${pad(day)}`;
     const d = detailForDate(date);
     if (!d.types.length && !d.tests && !d.start && !d.end && !d.note && !offSet.has(date)) continue;
-    const work = d.types.map(t=>t==='qa'?'QA':'АЗС').join(' + ');
+    const work = d.types
+      .filter(t => t === 'qa' || t === 'azs')
+      .map(t => t === 'qa' ? 'QA' : 'АЗС')
+      .join(' + ');
     rows.push([date, weekdays.format(new Date(`${date}T12:00:00`)), work, d.start, d.end, d.tests || 0, d.note, offSet.has(date)?'QA недоступний':'']);
   }
   if (rows.length === 1) rows.push([`${key}`, '', 'Даних за місяць ще немає', '', '', 0, '', '']);

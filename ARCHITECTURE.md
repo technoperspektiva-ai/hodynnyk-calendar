@@ -12,3 +12,10 @@
 ## Day record
 `dayDetails[YYYY-MM-DD]` contains `types`, `start`, `end`, `tests`, `note`.
 When `types` includes `azs`, Worker creates/updates a shift for the same date so Telegram and QA OFF use the calendar as source of truth.
+
+
+## v0.4.0
+- Ручна кнопка «Запустити QA-перевірку» тепер завжди надсилає результат у Telegram.
+- Якщо QA OFF завтра є — надсилається звичайне повідомлення про відсутність.
+- Якщо QA OFF немає — надсилається той самий формат зі статусом «QA OFF немає / доступний за звичайним графіком».
+- Cron не змінено: автоматично він надсилає повідомлення лише коли QA OFF реально є.
