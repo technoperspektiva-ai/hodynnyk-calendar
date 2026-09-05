@@ -253,6 +253,49 @@ async function sendTelegram(env, chatId, text) {
   return data;
 }
 
+async function telegramUpdates(env) {
+  if (!env.TELEGRAM_BOT_TOKEN) {
+    const error = new Error('TELEGRAM_BOT_TOKEN is not configured');
+    error.kind = 'config';
+    throw error;
+  }
+  const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/getUpdates`, {
+    method: 'POST',
+    headers: { 'content-type':'application/json' },
+    body: JSON.stringify({ limit: 100, timeout: 0, allowed_updates: ['message'] })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok) {
+    const error = new Error(data.description || `Telegram getUpdates failed (${res.status})`);
+    error.kind = 'telegram';
+    error.httpStatus = res.status;
+    error.telegramErrorCode = data.error_code || null;
+    error.telegramDescription = data.description || null;
+    error.telegramParameters = data.parameters || null;
+    throw error;
+  }
+  return Array.isArray(data.result) ? data.result : [];
+}
+
+function privateChatsFromUpdates(updates) {
+  const byUser = new Map();
+  for (const update of updates || []) {
+    const message = update?.message;
+    const chat = message?.chat;
+    const from = message?.from;
+    if (!message || !chat || !from || chat.type !== 'private') continue;
+    const telegramId = String(from.id || '');
+    const chatId = String(chat.id || '');
+    if (!/^\d{5,20}$/.test(telegramId) || !/^-?\d{5,20}$/.test(chatId)) continue;
+    const firstName = cleanText(from.first_name || '', 40);
+    const lastName = cleanText(from.last_name || '', 40);
+    const username = cleanText(from.username || '', 40);
+    const name = cleanText([firstName,lastName].filter(Boolean).join(' '), 60) || (username ? `@${username}` : telegramId);
+    byUser.set(telegramId, { telegramId, chatId, name, username, updateId: Number(update.update_id || 0) });
+  }
+  return [...byUser.values()].sort((a,b) => b.updateId - a.updateId);
+}
+
 function telegramErrorFields(error) {
   return {
     error: String(error?.message || error || 'Unknown error'),
@@ -768,8 +811,8 @@ export default {
       if (privateResponse) return privateResponse;
     }
 
-    if (path === '/api/health') return json({ ok:true, app:'hodynnyk-calendar', version:'0.4.0' });
-    if (path === '/api/config') return json({ ok:true, authConfigured:authConfigured(env), app:'Hodynnyk', version:'0.4.0', botUsername:String(env.TELEGRAM_BOT_USERNAME || '') });
+    if (path === '/api/health') return json({ ok:true, app:'hodynnyk-calendar', version:'0.4.8' });
+    if (path === '/api/config') return json({ ok:true, authConfigured:authConfigured(env), app:'Hodynnyk', version:'0.4.8', botUsername:String(env.TELEGRAM_BOT_USERNAME || '') });
     if (path === '/api/auth/login') return telegramOidcLogin(request, env);
     if (path === '/api/auth/callback') {
       try { return await telegramOidcCallback(request, env, ctx); }
@@ -816,6 +859,46 @@ export default {
         return json({ ok:true,user,state:out });
       }
       if (path === '/api/action' && request.method === 'POST') return handleAction(request, env, user, state);
+      if (path === '/api/telegram/sync' && request.method === 'POST') {
+        if (!requireRole(user,['admin'])) return json({ok:false,error:'Forbidden'},403);
+        try {
+          const updates = await telegramUpdates(env);
+          const chats = privateChatsFromUpdates(updates);
+          if (!chats.length) {
+            return json({ ok:true, synced:0, found:0, message:'No private bot chats found. Open the bot, press Start and send any message, then sync again.' });
+          }
+          let synced = 0;
+          const syncedUsers = [];
+          for (const chat of chats) {
+            const manager = state.managers.find(m => String(m.telegramId) === chat.telegramId);
+            const preferredName = manager?.name || (chat.telegramId === OWNER_TELEGRAM_ID ? 'Admin' : chat.name);
+            let recipient = state.recipients.find(r => String(r.telegramUserId || '') === chat.telegramId);
+            if (!recipient) recipient = state.recipients.find(r => String(r.chatId || '') === chat.chatId);
+            if (recipient) {
+              const changed = recipient.chatId !== chat.chatId || recipient.telegramUserId !== chat.telegramId;
+              recipient.chatId = chat.chatId;
+              recipient.telegramUserId = chat.telegramId;
+              if (!recipient.name || /^\d+$/.test(recipient.name) || recipient.name === 'Test') recipient.name = preferredName;
+              recipient.syncedAt = new Date().toISOString();
+              if (changed) synced++;
+            } else {
+              recipient = {
+                id: crypto.randomUUID(), name: preferredName, chatId: chat.chatId,
+                telegramUserId: chat.telegramId, enabled: true,
+                createdAt: new Date().toISOString(), syncedAt: new Date().toISOString()
+              };
+              state.recipients.push(recipient);
+              synced++;
+            }
+            syncedUsers.push({ telegramId:chat.telegramId, chatId:chat.chatId, name:recipient.name });
+          }
+          state.recipients = state.recipients.slice(-100);
+          await writeState(env, state);
+          return json({ ok:true, synced, found:chats.length, users:syncedUsers, state:publicStateForRole(state,user.role) });
+        } catch (error) {
+          return json({ ok:false, error:String(error.message || error), ...telegramErrorFields(error) }, 502);
+        }
+      }
       if (path === '/api/telegram/test' && request.method === 'POST') {
         if (!requireRole(user,['admin'])) return json({ok:false,error:'Forbidden'},403);
         const body = await request.json().catch(() => ({}));

@@ -29,10 +29,11 @@ function renderRecipients(){
     <div class="section-title"><h2>Telegram recipients</h2><span>${rows.length}</span></div>
     <div class="formrow"><div class="field"><label>Назва</label><input id="rName" class="input" placeholder="QA Lead"></div><div class="field"><label>Telegram chat ID</label><input id="rChat" class="input" placeholder="123456789 або -100…"></div></div>
     <button class="btn primary" id="addRecipient">Додати отримувача</button>
-    <div class="list" style="margin-top:14px">${rows.length?rows.map(r=>`<div class="rowitem"><div><div class="name">${esc(r.name)}</div><div class="meta">${esc(r.chatId)}</div></div><div class="actions"><button class="switch ${r.enabled!==false?'on':''}" data-toggle-r="${esc(r.id)}" aria-label="toggle"></button><button class="btn ghost" data-test-r="${esc(r.id)}">test</button><button class="btn danger" data-del-r="${esc(r.id)}">×</button></div></div>`).join(''):'<div class="empty">Отримувачів поки немає.</div>'}</div>
+    <div class="list" style="margin-top:14px">${rows.length?rows.map(r=>`<div class="rowitem"><div><div class="name">${esc(r.name)}</div><div class="meta">chat_id ${esc(r.chatId)}${r.telegramUserId?` · user ${esc(r.telegramUserId)}`:''}</div></div><div class="actions"><button class="switch ${r.enabled!==false?'on':''}" data-toggle-r="${esc(r.id)}" aria-label="toggle"></button><button class="btn ghost" data-test-r="${esc(r.id)}">test</button><button class="btn danger" data-del-r="${esc(r.id)}">×</button></div></div>`).join(''):'<div class="empty">Отримувачів поки немає.</div>'}</div>
     <div class="actions admin-action-grid" style="margin-top:14px">
       <button class="btn primary" id="sendTomorrow">Надіслати про завтра</button>
       <button class="btn" id="runNow">Запустити QA-перевірку</button>
+      <button class="btn ghost" id="syncBot">Синхронізувати бот</button>
       ${config?.botUsername ? `<a class="btn ghost bot-open" href="https://t.me/${esc(config.botUsername)}" target="_blank" rel="noopener">Відкрити @${esc(config.botUsername)}</a>` : ''}
     </div>`;
   $('#addRecipient').onclick=async()=>{try{await action('addRecipient',{name:$('#rName').value,chatId:$('#rChat').value});toast('Отримувача додано')}catch(e){toast(e.message)}};
@@ -49,6 +50,7 @@ function renderRecipients(){
     }catch(e){toast(e.message)}
   };
   $('#runNow').onclick=async()=>{try{const d=await api('/api/notifications/run',{method:'POST',body:'{}'});if(d.skipped==='no-recipients') toast('Немає активних отримувачів');else {const sent=(d.results||[]).filter(x=>x.status==='sent').length;toast(`Перевірку надіслано: ${sent}`)}await reload()}catch(e){toast(e.message)}};
+  $('#syncBot').onclick=async()=>{try{const d=await api('/api/telegram/sync',{method:'POST',body:'{}'});if(d.state) state={...state,...d.state};if(!d.found) toast('Чатів не знайдено: натисни Start і напиши боту повідомлення');else toast(`Синхронізовано: ${d.synced}, знайдено: ${d.found}`);renderAll()}catch(e){toast(e.data?.telegramDescription||e.message)}};
 }
 
 function $$(s,root=document){return [...root.querySelectorAll(s)]}
