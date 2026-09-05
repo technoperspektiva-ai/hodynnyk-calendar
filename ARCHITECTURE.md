@@ -1,4 +1,4 @@
-# Architecture — v0.3.1
+# Architecture — v0.3.3
 
 - `public/` — installable PWA shell, calendar UI, modal day editor, XLSX export.
 - `src/worker.js` — Telegram OIDC auth, role authorization, Durable Object state, QA conflict computation, Telegram notifications.

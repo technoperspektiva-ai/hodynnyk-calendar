@@ -342,9 +342,11 @@ function authConfigured(env) {
 }
 
 function adminPath(env) {
-  const raw = String(env.ADMIN_PATH || '').trim().replace(/^\/+|\/+$/g, '');
-  return raw && /^[a-zA-Z0-9_-]{6,80}$/.test(raw) ? `/${raw}` : null;
+  // Stable owner route. ADMIN_PATH can override it, but a missing secret must not brick the admin UI.
+  const raw = String(env.ADMIN_PATH || 'last-admin').trim().replace(/^\/+|\/+$/g, '');
+  return /^[a-zA-Z0-9_-]{6,80}$/.test(raw) ? `/${raw}` : '/last-admin';
 }
+
 
 
 async function currentUser(request, env, state) {
@@ -696,8 +698,8 @@ export default {
       if (privateResponse) return privateResponse;
     }
 
-    if (path === '/api/health') return json({ ok:true, app:'hodynnyk-calendar', version:'0.3.1' });
-    if (path === '/api/config') return json({ ok:true, authConfigured:authConfigured(env), app:'Hodynnyk', version:'0.3.1', botUsername:String(env.TELEGRAM_BOT_USERNAME || '') });
+    if (path === '/api/health') return json({ ok:true, app:'hodynnyk-calendar', version:'0.3.3' });
+    if (path === '/api/config') return json({ ok:true, authConfigured:authConfigured(env), app:'Hodynnyk', version:'0.3.3', botUsername:String(env.TELEGRAM_BOT_USERNAME || '') });
     if (path === '/api/auth/login') return telegramOidcLogin(request, env);
     if (path === '/api/auth/callback') {
       try { return await telegramOidcCallback(request, env, ctx); }

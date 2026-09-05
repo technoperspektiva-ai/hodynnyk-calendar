@@ -1,4 +1,4 @@
-# hodynnyk-calendar v0.3.1
+# hodynnyk-calendar v0.3.3
 
 PWA-first робочий календар для QA + АЗС.
 
@@ -36,6 +36,6 @@ ADMIN_PATH
 
 `TELEGRAM_BOT_USERNAME=HodynnykCalendar_bot` заданий у `wrangler.jsonc` як звичайна variable.
 
-## Admin button v0.3.1
+## Admin button v0.3.3
 
 For Telegram account `375938798`, when the resolved role is `admin`, the main app bar shows a private admin button. It opens `/api/admin`, which performs a server-side role/id check and redirects to the secret `ADMIN_PATH`; the actual private path is not embedded in the frontend. Other accounts receive 404 from `/api/admin`.
