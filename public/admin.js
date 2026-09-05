@@ -9,7 +9,7 @@ function blocked(message){$('#app').innerHTML=`<main class="shell login"><sectio
 
 function shell(){
   $('#app').innerHTML=`<main class="shell">
-    <header class="topbar"><div class="brand"><img class="brand-icon" src="/icons/icon-192.png" alt=""><div><h1>Календарь робочих днів</h1><small>CONTROL</small></div></div><div class="userbar"><span class="pill green">Admin</span><span class="pill">${esc(user.name||user.username||user.id)}</span><a class="btn ghost" href="/">Календар</a>${config.authConfigured?'<a class="btn ghost" href="/api/auth/logout">Вийти</a>':''}</div></header>
+    <header class="topbar admin-topbar"><div class="brand admin-brand"><img class="brand-icon" src="/icons/icon-192.png" alt=""><div><h1>Календарь робочих днів</h1><small>CONTROL</small></div></div><div class="userbar admin-userbar"><div class="admin-user-meta"><span class="pill green">Admin</span><span class="pill">${esc(user.name||user.username||user.id)}</span></div><div class="admin-nav-actions"><a class="btn ghost" href="/">Календар</a>${config.authConfigured?'<a class="btn ghost" href="/api/auth/logout">Вийти</a>':''}</div></div></header>
     <section class="admin-layout">
       <aside class="card side"><a class="active" href="#recipients">Recipients</a><a href="#managers">Managers</a><a href="#logs">Delivery log</a></aside>
       <div class="stack">
@@ -30,10 +30,10 @@ function renderRecipients(){
     <div class="formrow"><div class="field"><label>Назва</label><input id="rName" class="input" placeholder="QA Lead"></div><div class="field"><label>Telegram chat ID</label><input id="rChat" class="input" placeholder="123456789 або -100…"></div></div>
     <button class="btn primary" id="addRecipient">Додати отримувача</button>
     <div class="list" style="margin-top:14px">${rows.length?rows.map(r=>`<div class="rowitem"><div><div class="name">${esc(r.name)}</div><div class="meta">${esc(r.chatId)}</div></div><div class="actions"><button class="switch ${r.enabled!==false?'on':''}" data-toggle-r="${esc(r.id)}" aria-label="toggle"></button><button class="btn ghost" data-test-r="${esc(r.id)}">test</button><button class="btn danger" data-del-r="${esc(r.id)}">×</button></div></div>`).join(''):'<div class="empty">Отримувачів поки немає.</div>'}</div>
-    <div class="actions" style="margin-top:14px">
+    <div class="actions admin-action-grid" style="margin-top:14px">
       <button class="btn primary" id="sendTomorrow">Надіслати про завтра</button>
       <button class="btn" id="runNow">Запустити QA-перевірку</button>
-      ${config?.botUsername ? `<a class="btn ghost" href="https://t.me/${esc(config.botUsername)}" target="_blank" rel="noopener">Відкрити @${esc(config.botUsername)}</a>` : ''}
+      ${config?.botUsername ? `<a class="btn ghost bot-open" href="https://t.me/${esc(config.botUsername)}" target="_blank" rel="noopener">Відкрити @${esc(config.botUsername)}</a>` : ''}
     </div>`;
   $('#addRecipient').onclick=async()=>{try{await action('addRecipient',{name:$('#rName').value,chatId:$('#rChat').value});toast('Отримувача додано')}catch(e){toast(e.message)}};
   $$('[data-toggle-r]').forEach(b=>b.onclick=async()=>{const r=rows.find(x=>x.id===b.dataset.toggleR);await action('updateRecipient',{id:r.id,enabled:r.enabled===false});});
@@ -113,8 +113,8 @@ function renderLogs(){
   const all=[...(state.notificationLog||[])].reverse();
   const rows=all.slice(0,100);
   $('#logs').innerHTML=`<div class="section-title"><h2>Telegram logs</h2><span>${all.length}</span></div>
-    ${rows.length?`<div style="overflow:auto"><table class="table"><thead><tr><th>Коли</th><th>Тип</th><th>Кому / chat_id</th><th>Статус</th><th>Деталі</th></tr></thead><tbody>${rows.map(l=>`<tr><td>${esc(l.at?new Date(l.at).toLocaleString('uk-UA'):'—')}</td><td>${esc(logTypeLabel(l))}</td><td><div>${esc(l.recipientName||'—')}</div><div class="meta">${esc(l.chatId||'—')}</div></td><td class="${l.status==='sent'?'success':'error'}">${esc(String(l.status||'—').toUpperCase())}</td><td class="log-detail">${esc(l.status==='error'?logErrorText(l):(l.text||'OK'))}</td></tr>`).join('')}</tbody></table></div>`:'<div class="empty">Відправок ще не було.</div>'}
-    <div class="actions" style="margin-top:14px"><button class="btn" id="downloadLogs">Зберегти TXT</button><button class="btn danger" id="clearLogs">Очистити журнал</button></div>`;
+    ${rows.length?`<div class="log-table-wrap"><table class="table"><thead><tr><th>Коли</th><th>Тип</th><th>Кому / chat_id</th><th>Статус</th><th>Деталі</th></tr></thead><tbody>${rows.map(l=>`<tr><td>${esc(l.at?new Date(l.at).toLocaleString('uk-UA'):'—')}</td><td>${esc(logTypeLabel(l))}</td><td><div>${esc(l.recipientName||'—')}</div><div class="meta">${esc(l.chatId||'—')}</div></td><td class="${l.status==='sent'?'success':'error'}">${esc(String(l.status||'—').toUpperCase())}</td><td class="log-detail">${esc(l.status==='error'?logErrorText(l):(l.text||'OK'))}</td></tr>`).join('')}</tbody></table></div><div class="log-cards">${rows.map(l=>`<article class="log-card"><div class="log-card-head"><strong>${esc(logTypeLabel(l))}</strong><span class="${l.status==='sent'?'success':'error'}">${esc(String(l.status||'—').toUpperCase())}</span></div><div class="log-card-time">${esc(l.at?new Date(l.at).toLocaleString('uk-UA'):'—')}</div><div class="log-card-recipient">${esc(l.recipientName||'—')} <span>${esc(l.chatId||'—')}</span></div><div class="log-card-detail">${esc(l.status==='error'?logErrorText(l):(l.text||'OK'))}</div></article>`).join('')}</div>`:'<div class="empty">Відправок ще не було.</div>'}
+    <div class="actions log-actions" style="margin-top:14px"><button class="btn" id="downloadLogs">Зберегти TXT</button><button class="btn danger" id="clearLogs">Очистити журнал</button></div>`;
   $('#downloadLogs').onclick=logsToTxt;
   $('#clearLogs').onclick=async()=>{if(confirm('Очистити журнал?'))await action('clearLogs',{})};
 }
