@@ -82,19 +82,9 @@ function monthTarget() {
   return Math.max(0, Number(state?.metrics?.[monthKey(viewDate)]?.target || 0));
 }
 
-function hoursForDetail(d) {
-  if (!d || d.types.includes('off') || !d.start || !d.end) return 0;
-  const [sh, sm] = d.start.split(':').map(Number);
-  const [eh, em] = d.end.split(':').map(Number);
-  if (![sh, sm, eh, em].every(Number.isFinite)) return 0;
-  let minutes = (eh * 60 + em) - (sh * 60 + sm);
-  if (minutes <= 0) minutes += 24 * 60;
-  return minutes / 60;
-}
-
 function monthStats() {
   const key = monthKey(viewDate);
-  let qa = 0, azs = 0, off = 0, tests = 0, workDays = 0, hours = 0;
+  let qa = 0, azs = 0, tests = 0, workDays = 0;
   const dates = new Set([
     ...Object.keys(state?.workLog || {}),
     ...Object.keys(state?.dayDetails || {})
@@ -104,12 +94,10 @@ function monthStats() {
     const d = detailForDate(date);
     if (d.types.includes('qa')) qa++;
     if (d.types.includes('azs')) azs++;
-    if (d.types.includes('off')) off++;
-    if (d.types.some(t => t === 'qa' || t === 'azs')) workDays++;
+    if (d.types.length) workDays++;
     tests += Math.max(0, Number(d.tests || 0));
-    hours += hoursForDetail(d);
   }
-  return { qa, azs, off, tests, workDays, hours, target:monthTarget() };
+  return { qa, azs, tests, workDays, target:monthTarget() };
 }
 
 function absenceSetForMonth() {
@@ -126,11 +114,12 @@ function renderShell() {
       <header class="appbar">
         <div class="brand compact-brand">
           <div class="brandmark">H</div>
-          <div><h1>Календар</h1><small>${esc(roleLabel())}</small></div>
+          <div><h1>Hodynnyk</h1><small>${esc(roleLabel())}</small></div>
         </div>
         <div class="appbar-actions">
           ${user?.picture ? `<img class="avatar" src="${esc(user.picture)}" alt="">` : ''}
-          <button class="iconbtn soft" type="button" data-install-pwa hidden aria-label="Встановити PWA">↓</button>
+          ${String(user?.id || '') === '375938798' && user?.role === 'admin' ? '<a class="iconbtn soft admin-entry" href="/api/admin" aria-label="Адмін-панель" title="Адмін-панель">⚙</a>' : ''}
+          <button class="install-chip" type="button" data-install-pwa hidden aria-label="Встановити PWA" title="Встановити PWA">PWA</button>
           <a class="iconbtn soft" href="/api/auth/logout" aria-label="Вийти">↗</a>
         </div>
       </header>
@@ -138,12 +127,10 @@ function renderShell() {
       <section class="calendar-stage">
         <section class="calendar-card">
           <div class="calendar-toolbar">
-            <div class="month-nav">
-              <button class="iconbtn" id="prevMonth" aria-label="Попередній місяць">←</button>
-              <button class="month-button" id="todayMonth" type="button"><span id="monthTitle"></span><small>натисни, щоб повернутись до сьогодні</small></button>
-              <button class="iconbtn" id="nextMonth" aria-label="Наступний місяць">→</button>
-            </div>
-            <button class="btn export-btn" id="exportExcel" type="button">Excel ↓</button>
+            <button class="iconbtn month-arrow" id="prevMonth" aria-label="Попередній місяць">←</button>
+            <button class="month-button" id="todayMonth" type="button"><span id="monthTitle"></span><small>натисни, щоб повернутись до сьогодні</small></button>
+            <button class="iconbtn month-arrow" id="nextMonth" aria-label="Наступний місяць">→</button>
+            <button class="btn export-btn" id="exportExcel" type="button">Excel</button>
           </div>
 
           <div class="month-summary" id="monthSummary"></div>
@@ -154,8 +141,7 @@ function renderShell() {
           <div class="calendar-legend">
             <span><i class="legend-dot qa"></i>QA</span>
             <span><i class="legend-dot azs"></i>АЗС</span>
-            <span><i class="legend-dot dayoff"></i>Вихідний</span>
-            <span><i class="legend-dot off"></i>QA OFF</span>
+            <span class="legend-off"><i class="legend-dot off"></i>QA недоступний</span>
             <span class="legend-note">Натисни на дату, щоб переглянути день</span>
           </div>
         </section>
@@ -173,7 +159,6 @@ function renderSummary() {
     <div class="summary-item"><span>QA</span><b>${s.qa}</b></div>
     <div class="summary-item"><span>АЗС</span><b>${s.azs}</b></div>
     <div class="summary-item"><span>Тести</span><b>${s.tests}</b></div>
-    ${user.role === 'manager' ? `<div class="summary-item"><span>Години</span><b>${Number.isInteger(s.hours) ? s.hours : s.hours.toFixed(1)}</b></div>` : ''}
     <button class="summary-item ${targetClickable}" id="targetSummary" type="button" ${user.role === 'manager' ? '' : 'disabled'}>
       <span>План</span><b>${s.target || '—'}</b>${user.role === 'manager' ? '<em>змінити</em>' : ''}
     </button>
@@ -202,7 +187,6 @@ function renderCalendar() {
     const detail = detailForDate(date);
     const qa = detail.types.includes('qa');
     const azs = detail.types.includes('azs');
-    const dayOff = detail.types.includes('off');
     const off = offSet.has(date);
     html += `<button class="day clean-day ${!inMonth?'out':''} ${date===today?'today':''}" data-date="${date}" aria-label="${esc(shortDate(date))}">
       <span class="daynum">${d.getDate()}</span>
@@ -210,8 +194,7 @@ function renderCalendar() {
       <span class="day-marks">
         ${qa ? '<i class="mark qa" title="QA"></i>' : ''}
         ${azs ? '<i class="mark azs" title="АЗС"></i>' : ''}
-        ${dayOff ? '<i class="mark dayoff" title="Вихідний"></i>' : ''}
-        ${off ? '<i class="mark off" title="QA OFF"></i>' : ''}
+        ${off ? '<i class="mark off" title="QA недоступний"></i>' : ''}
       </span>
     </button>`;
   }
@@ -230,25 +213,10 @@ function renderCalendar() {
 }
 
 function toggleModalType(type) {
-  const root = $('#dayModal');
-  const btn = $(`[data-type="${type}"]`, root);
+  const btn = $(`[data-type="${type}"]`, $('#dayModal'));
   if (!btn || btn.disabled) return;
-
-  if (type === 'off') {
-    const willActivate = !btn.classList.contains('active');
-    $$('[data-type]', root).forEach(x => x.classList.remove('active'));
-    if (willActivate) btn.classList.add('active');
-    if (willActivate) {
-      $('#dayStart').value = '';
-      $('#dayEnd').value = '';
-      $('#dayTests').value = 0;
-    }
-    return;
-  }
-
-  $('[data-type="off"]', root)?.classList.remove('active');
   btn.classList.toggle('active');
-  const any = $$('[data-type].active', root).map(x => x.dataset.type);
+  const any = $$('[data-type].active', $('#dayModal')).map(x => x.dataset.type);
   const start = $('#dayStart');
   const end = $('#dayEnd');
   if (any.length === 1 && !start.value && !end.value) {
@@ -279,9 +247,8 @@ function openDayModal(date) {
             <div class="type-picker">
               <button class="type-choice ${d.types.includes('qa')?'active':''}" data-type="qa" type="button" ${editable?'':'disabled'}><i></i><b>QA</b></button>
               <button class="type-choice ${d.types.includes('azs')?'active':''}" data-type="azs" type="button" ${editable?'':'disabled'}><i></i><b>АЗС</b></button>
-              <button class="type-choice ${d.types.includes('off')?'active':''}" data-type="off" type="button" ${editable?'':'disabled'}><i></i><b>Вихідний</b></button>
             </div>
-            ${off ? '<div class="modal-alert">Цей день перетинається з плановою зміною АЗС → QA OFF</div>' : ''}
+            ${off ? '<div class="modal-alert">Цей день перетинається з плановою зміною АЗС → QA недоступний</div>' : ''}
           </div>
 
           <div class="modal-section">
@@ -466,8 +433,8 @@ function exportCurrentMonthXlsx() {
     const date = `${year}-${pad(month)}-${pad(day)}`;
     const d = detailForDate(date);
     if (!d.types.length && !d.tests && !d.start && !d.end && !d.note && !offSet.has(date)) continue;
-    const work = d.types.map(t=>t==='qa'?'QA':t==='azs'?'АЗС':'Вихідний').join(' + ');
-    rows.push([date, weekdays.format(new Date(`${date}T12:00:00`)), work, d.start, d.end, d.tests || 0, d.note, offSet.has(date)?'QA OFF':'']);
+    const work = d.types.map(t=>t==='qa'?'QA':'АЗС').join(' + ');
+    rows.push([date, weekdays.format(new Date(`${date}T12:00:00`)), work, d.start, d.end, d.tests || 0, d.note, offSet.has(date)?'QA недоступний':'']);
   }
   if (rows.length === 1) rows.push([`${key}`, '', 'Даних за місяць ще немає', '', '', 0, '', '']);
   rows.push(['','','','','','', '', '']);
