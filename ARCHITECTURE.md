@@ -23,3 +23,9 @@ When `types` includes `azs`, Worker creates/updates a shift for the same date so
 
 ## v0.4.9
 Manager calendar now has a compact Telegram self-sync button next to Excel. It calls `/api/telegram/sync-self` and only binds the currently authenticated manager/admin Telegram account to its private bot chat.
+
+
+## v0.5.0 sync visibility fix
+- Fixed stale PWA cache version (was still 0.4.4).
+- Added cache-busting query params to main CSS/JS.
+- Telegram self-sync button is visible for both authenticated admin and manager next to Excel.

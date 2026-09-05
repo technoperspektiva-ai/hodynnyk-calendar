@@ -134,7 +134,7 @@ function renderShell() {
             <button class="iconbtn month-arrow" id="nextMonth" aria-label="Наступний місяць">→</button>
             <div class="calendar-tools">
               <button class="btn export-btn" id="exportExcel" type="button">Excel</button>
-              ${user.role === 'manager' ? '<button class="iconbtn manager-sync-btn" id="syncMyTelegram" type="button" aria-label="Синхронізувати Telegram" title="Синхронізувати Telegram">↻</button>' : ''}
+              ${['admin','manager'].includes(user.role) ? '<button class="iconbtn manager-sync-btn" id="syncMyTelegram" type="button" aria-label="Синхронізувати Telegram" title="Синхронізувати Telegram">↻</button>' : ''}
             </div>
           </div>
 
