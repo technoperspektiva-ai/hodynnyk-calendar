@@ -29,3 +29,7 @@ Manager calendar now has a compact Telegram self-sync button next to Excel. It c
 - Fixed stale PWA cache version (was still 0.4.4).
 - Added cache-busting query params to main CSS/JS.
 - Telegram self-sync button is visible for both authenticated admin and manager next to Excel.
+
+
+## Telegram self-sync
+Both the main manager UI and admin self-sync use the authenticated session user id. The hardcoded owner id is only an authorization rule for admin access, never the sync target.

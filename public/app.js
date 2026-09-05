@@ -384,7 +384,51 @@ function setupEvents() {
     await refreshMonth();
   });
   $('#exportExcel').addEventListener('click', exportCurrentMonthXlsx);
-  $('#syncMyTelegram')?.addEventListener('click', syncMyTelegram);
+  $('#syncMyTelegram')?.addEventListener('click', () => {
+    if (user?.role === 'manager') openTelegramSyncModal();
+    else syncMyTelegram();
+  });
+}
+
+function openTelegramSyncModal() {
+  const botUsername = (config?.botUsername || 'HodynnykCalendar_bot').replace(/^@/, '');
+  const root = $('#modalRoot');
+  if (!root) return;
+  root.innerHTML = `
+    <div class="modal-backdrop" id="telegramSyncBackdrop">
+      <section class="modal-sheet compact-modal telegram-sync-modal" role="dialog" aria-modal="true" aria-labelledby="telegramSyncTitle">
+        <header class="modal-head">
+          <div><span class="modal-kicker">Telegram</span><h2 id="telegramSyncTitle">Синхронізація</h2></div>
+          <button class="modal-close" id="closeTelegramSync" type="button" aria-label="Закрити">×</button>
+        </header>
+        <div class="modal-body">
+          <a class="btn primary telegram-bot-link" href="https://t.me/${esc(botUsername)}" target="_blank" rel="noopener">Відкрити @${esc(botUsername)}</a>
+        </div>
+        <footer class="modal-actions telegram-sync-actions">
+          <button class="btn ghost" id="cancelTelegramSync" type="button">Закрити</button>
+          <button class="btn primary" id="confirmTelegramSync" type="button">Синхронізувати</button>
+        </footer>
+      </section>
+    </div>`;
+  const close = () => { root.innerHTML = ''; };
+  $('#closeTelegramSync')?.addEventListener('click', close);
+  $('#cancelTelegramSync')?.addEventListener('click', close);
+  $('#telegramSyncBackdrop')?.addEventListener('click', event => { if (event.target.id === 'telegramSyncBackdrop') close(); });
+  $('#confirmTelegramSync')?.addEventListener('click', async () => {
+    const btn = $('#confirmTelegramSync');
+    const old = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '…';
+    try {
+      const out = await api('/api/telegram/sync-self', { method:'POST' });
+      close();
+      toast(out.message || 'Telegram синхронізовано');
+    } catch (error) {
+      toast(error.message || 'Не вдалося синхронізувати Telegram');
+    } finally {
+      if (btn?.isConnected) { btn.disabled = false; btn.textContent = old; }
+    }
+  });
 }
 
 async function syncMyTelegram() {

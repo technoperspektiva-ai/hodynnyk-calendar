@@ -50,7 +50,7 @@ function renderRecipients(){
     }catch(e){toast(e.message)}
   };
   $('#runNow').onclick=async()=>{try{const d=await api('/api/notifications/run',{method:'POST',body:'{}'});if(d.skipped==='no-recipients') toast('Немає активних отримувачів');else {const sent=(d.results||[]).filter(x=>x.status==='sent').length;toast(`Перевірку надіслано: ${sent}`)}await reload()}catch(e){toast(e.message)}};
-  $('#syncBot').onclick=async()=>{try{const d=await api('/api/telegram/sync',{method:'POST',body:'{}'});if(d.state) state={...state,...d.state};if(!d.found) toast('Чатів не знайдено: натисни Start і напиши боту повідомлення');else toast(`Синхронізовано: ${d.synced}, знайдено: ${d.found}`);renderAll()}catch(e){toast(e.data?.telegramDescription||e.message)}};
+  $('#syncBot').onclick=async()=>{try{const d=await api('/api/telegram/sync-self',{method:'POST',body:'{}'});toast(d.message||`Telegram синхронізовано: ${d.chatId||''}`);await reload()}catch(e){toast(e.data?.telegramDescription||e.message)}};
 }
 
 function $$(s,root=document){return [...root.querySelectorAll(s)]}

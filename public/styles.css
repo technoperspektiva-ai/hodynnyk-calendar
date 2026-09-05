@@ -166,3 +166,14 @@
 @media(max-width:390px){
   .manager-sync-btn{width:34px;height:34px;border-radius:11px}
 }
+
+
+/* v0.5.1 manager Telegram sync modal */
+.telegram-sync-modal .modal-body{display:block}
+.telegram-bot-link{width:100%;min-height:48px;display:flex;align-items:center;justify-content:center;text-align:center}
+.telegram-sync-actions{justify-content:flex-end}
+@media(max-width:700px){
+  .telegram-sync-modal .modal-body{padding-top:16px;padding-bottom:16px}
+  .telegram-sync-actions{display:grid;grid-template-columns:1fr 1fr}
+  .telegram-sync-actions .btn{width:100%;min-height:46px}
+}
