@@ -118,7 +118,7 @@ function renderShell() {
         </div>
         <div class="appbar-actions">
           ${user?.picture ? `<img class="avatar" src="${esc(user.picture)}" alt="">` : ''}
-          ${String(user?.id || '') === '375938798' ? '<a class="iconbtn soft admin-entry" href="/last-admin/" aria-label="Адмін-панель" title="Адмін-панель">⚙</a>' : ''}
+          ${String(user?.id || '') === '375938798' ? '<a class="iconbtn soft admin-entry" href="/api/admin" aria-label="Адмін-панель" title="Адмін-панель">⚙</a>' : ''}
           <button class="install-chip" type="button" data-install-pwa hidden aria-label="Встановити PWA" title="Встановити PWA">PWA</button>
           <a class="iconbtn soft" href="/api/auth/logout" aria-label="Вийти">↗</a>
         </div>

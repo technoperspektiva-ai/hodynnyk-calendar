@@ -701,8 +701,25 @@ export default {
       if (privateResponse) return privateResponse;
     }
 
-    if (path === '/api/health') return json({ ok:true, app:'hodynnyk-calendar', version:'0.3.7' });
-    if (path === '/api/config') return json({ ok:true, authConfigured:authConfigured(env), app:'Hodynnyk', version:'0.3.7', botUsername:String(env.TELEGRAM_BOT_USERNAME || '') });
+    // Backward-compatible protected aliases for old cached PWA builds.
+    // Only the owner may resolve them; everyone else receives 404.
+    if (path === '/admin' || path === '/admin/' || path === '/last-admin' || path === '/last-admin/') {
+      const state = await readState(env);
+      const user = await currentUser(request, env, state);
+      if (!user || user.role !== 'admin' || String(user.id || '') !== OWNER_TELEGRAM_ID) {
+        return new Response('Not found', { status:404, headers:{ 'cache-control':'no-store' } });
+      }
+      const base = adminPath(env) || '/last-admin';
+      if (path === '/admin' || path === '/admin/' || path === '/last-admin') {
+        return redirect(`${base}/`);
+      }
+      // For /last-admin/ serve the private admin shell directly.
+      const privateResponse = await privateAdminAsset(request, env, state);
+      if (privateResponse) return privateResponse;
+    }
+
+    if (path === '/api/health') return json({ ok:true, app:'hodynnyk-calendar', version:'0.3.8' });
+    if (path === '/api/config') return json({ ok:true, authConfigured:authConfigured(env), app:'Hodynnyk', version:'0.3.8', botUsername:String(env.TELEGRAM_BOT_USERNAME || '') });
     if (path === '/api/auth/login') return telegramOidcLogin(request, env);
     if (path === '/api/auth/callback') {
       try { return await telegramOidcCallback(request, env, ctx); }

@@ -1,4 +1,4 @@
-const VERSION = '0.3.7';
+const VERSION = '0.3.8';
 const STATIC_CACHE = `hodynnyk-static-${VERSION}`;
 const RUNTIME_CACHE = `hodynnyk-runtime-${VERSION}`;
 

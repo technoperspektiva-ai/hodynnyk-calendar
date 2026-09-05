@@ -40,12 +40,12 @@ ADMIN_PATH
 
 For Telegram account `375938798`, when the resolved role is `admin`, the main app bar shows a private admin button. It opens `/api/admin`, which performs a server-side role/id check and redirects to the secret `ADMIN_PATH`; the actual private path is not embedded in the frontend. Other accounts receive 404 from `/api/admin`.
 
-## v0.3.7 — persistent runtime configuration
+## v0.3.8 — persistent runtime configuration
 
 The non-sensitive runtime values are now declared in `wrangler.jsonc`: `ADMIN_TELEGRAM_ID`, `TELEGRAM_CLIENT_ID`, `TELEGRAM_BOT_USERNAME`, and `ADMIN_PATH`. Only the bot token, Telegram client secret, and the session `AUTH_SECRET` must be stored as Cloudflare Secrets.
 
 
-## v0.3.7 owner fix
+## v0.3.8 owner fix
 - Telegram ID `375938798` is hardcoded as the owner/admin.
 - The gear is a native link to `/last-admin/` rather than a JS navigation button.
 - Owner recognition no longer depends on `ADMIN_TELEGRAM_ID` being present at runtime.
