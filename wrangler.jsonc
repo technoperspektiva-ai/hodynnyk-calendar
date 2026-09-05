@@ -1,0 +1,42 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "hodynnyk-calendar",
+  "main": "./src/worker.js",
+  "compatibility_date": "2026-09-04",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "APP_STORE",
+        "class_name": "AppStore"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": [
+        "AppStore"
+      ]
+    }
+  ],
+  "triggers": {
+    "crons": [
+      "0 * * * *"
+    ]
+  },
+  "vars": {
+    "ADMIN_TELEGRAM_ID": "375938798",
+    "TELEGRAM_CLIENT_ID": "8821803679",
+    "TELEGRAM_BOT_USERNAME": "HodynnykCalendar_bot",
+    "ADMIN_PATH": "last-admin"
+  },
+  "observability": {
+    "enabled": true
+  }
+}
