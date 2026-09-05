@@ -6,6 +6,7 @@ const JSON_HEADERS = {
 const enc = new TextEncoder();
 const OWNER_TELEGRAM_ID = '375938798';
 const dec = new TextDecoder();
+const ADMIN_SHELL_HTML = "<!doctype html><html lang=\"uk\"><head>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<meta name=\"theme-color\" content=\"#f4ead6\"><meta name=\"color-scheme\" content=\"light\">\n<meta name=\"description\" content=\"Hodynnyk control panel.\"><meta name=\"robots\" content=\"noindex,nofollow,noarchive\">\n<meta name=\"mobile-web-app-capable\" content=\"yes\"><meta name=\"apple-mobile-web-app-capable\" content=\"yes\"><meta name=\"apple-mobile-web-app-status-bar-style\" content=\"default\"><meta name=\"apple-mobile-web-app-title\" content=\"Hodynnyk\">\n<link rel=\"apple-touch-icon\" href=\"/icons/apple-touch-icon.png\"><link rel=\"icon\" type=\"image/png\" sizes=\"192x192\" href=\"/icons/icon-192.png\"><link rel=\"stylesheet\" href=\"/styles.css\"><title>Hodynnyk</title>\n</head><body><div id=\"app\"></div><div id=\"toast\" class=\"toast\"></div><script src=\"./app.js\" defer></script></body></html>\n";
 
 const json = (body, status = 200, extra = {}) => new Response(JSON.stringify(body), {
   status,
@@ -671,13 +672,32 @@ async function privateAdminAsset(request, env, state) {
   if (!requireRole(user, ['admin'])) return new Response('Not found', { status: 404, headers: { 'cache-control':'no-store' } });
 
   if (url.pathname === base) return redirect(`${base}/`);
-  const rewritten = new URL(request.url);
-  rewritten.pathname = url.pathname === `${base}/app.js` ? '/admin.js' : '/admin.html';
-  const response = await env.ASSETS.fetch(new Request(rewritten, request));
-  const headers = new Headers(response.headers);
-  headers.set('cache-control','no-store, private');
-  headers.set('x-robots-tag','noindex, nofollow, noarchive');
-  return new Response(response.body, { status:response.status, statusText:response.statusText, headers });
+
+  // Serve the private admin shell directly from the Worker. Do not fetch admin.html
+  // through Static Assets: Cloudflare may canonicalize /admin.html -> /admin,
+  // which can create a redirect loop with our protected aliases.
+  if (url.pathname === `${base}/`) {
+    return new Response(ADMIN_SHELL_HTML, {
+      status: 200,
+      headers: {
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store, private',
+        'x-robots-tag': 'noindex, nofollow, noarchive'
+      }
+    });
+  }
+
+  if (url.pathname === `${base}/app.js`) {
+    const rewritten = new URL(request.url);
+    rewritten.pathname = '/admin.js';
+    const response = await env.ASSETS.fetch(new Request(rewritten, request));
+    const headers = new Headers(response.headers);
+    headers.set('cache-control','no-store, private');
+    headers.set('x-robots-tag','noindex, nofollow, noarchive');
+    return new Response(response.body, { status:response.status, statusText:response.statusText, headers });
+  }
+
+  return null;
 }
 
 async function serveAsset(request, env) {
@@ -710,16 +730,14 @@ export default {
         return new Response('Not found', { status:404, headers:{ 'cache-control':'no-store' } });
       }
       const base = adminPath(env) || '/last-admin';
-      if (path === '/admin' || path === '/admin/' || path === '/last-admin') {
-        return redirect(`${base}/`);
-      }
-      // For /last-admin/ serve the private admin shell directly.
+      // Canonical private path is handled above. Any legacy alias redirects exactly once.
+      if (path !== `${base}/`) return redirect(`${base}/`);
       const privateResponse = await privateAdminAsset(request, env, state);
       if (privateResponse) return privateResponse;
     }
 
-    if (path === '/api/health') return json({ ok:true, app:'hodynnyk-calendar', version:'0.3.8' });
-    if (path === '/api/config') return json({ ok:true, authConfigured:authConfigured(env), app:'Hodynnyk', version:'0.3.8', botUsername:String(env.TELEGRAM_BOT_USERNAME || '') });
+    if (path === '/api/health') return json({ ok:true, app:'hodynnyk-calendar', version:'0.3.9' });
+    if (path === '/api/config') return json({ ok:true, authConfigured:authConfigured(env), app:'Hodynnyk', version:'0.3.9', botUsername:String(env.TELEGRAM_BOT_USERNAME || '') });
     if (path === '/api/auth/login') return telegramOidcLogin(request, env);
     if (path === '/api/auth/callback') {
       try { return await telegramOidcCallback(request, env, ctx); }
