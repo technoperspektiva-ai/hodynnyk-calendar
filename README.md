@@ -1,3 +1,15 @@
+# v0.6.0 — Access registry
+
+У цій версії старий `Manager access` замінено на серверний реєстр доступу.
+
+- `375938798` залишається hardcoded owner/admin fallback.
+- Новий Telegram-акаунт без доступу автоматично з'являється в `Запити на доступ` після OIDC login.
+- Адмін може одним кліком дозволити його як керівника.
+- Доступ також можна створити вручну по Telegram user ID.
+- Для кожного запису: ім'я, Telegram ID, роль, active, право змінювати планку, Telegram notifications, примітка.
+- Старі `managers[]` мігруються у `accessUsers[]` під час читання state.
+- Роль перераховується на кожному API-запиті, тому після дозволу достатньо оновити сторінку керівника.
+
 ## v0.4.4
 
 - Telegram delivery log now shows exact Telegram API error details, chat_id, type and time.
@@ -78,12 +90,12 @@ The non-sensitive runtime values are now declared in `wrangler.jsonc`: `ADMIN_TE
 Manager calendar now has a compact Telegram self-sync button next to Excel. It calls `/api/telegram/sync-self` and only binds the currently authenticated manager/admin Telegram account to its private bot chat.
 
 
-## v0.5.3 sync visibility fix
+## v0.6.0 sync visibility fix
 - Fixed stale PWA cache version (was still 0.4.4).
 - Added cache-busting query params to main CSS/JS.
 - Telegram self-sync button is visible for both authenticated admin and manager next to Excel.
 
 
-## v0.5.3
+## v0.6.0
 - Admin bot sync uses the currently authenticated Telegram session (`/api/telegram/sync-self`).
 - Manager sync button opens a compact modal with a direct link to `@HodynnykCalendar_bot` and a separate sync action.

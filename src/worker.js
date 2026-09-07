@@ -6,7 +6,7 @@ const JSON_HEADERS = {
 const enc = new TextEncoder();
 const OWNER_TELEGRAM_ID = '375938798';
 const dec = new TextDecoder();
-const ADMIN_SHELL_HTML = "<!doctype html><html lang=\"uk\"><head>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<meta name=\"theme-color\" content=\"#f4ead6\"><meta name=\"color-scheme\" content=\"light\">\n<meta name=\"description\" content=\"Календарь робочих днів — control panel.\"><meta name=\"robots\" content=\"noindex,nofollow,noarchive\">\n<meta name=\"mobile-web-app-capable\" content=\"yes\"><meta name=\"apple-mobile-web-app-capable\" content=\"yes\"><meta name=\"apple-mobile-web-app-status-bar-style\" content=\"default\"><meta name=\"apple-mobile-web-app-title\" content=\"Календарь робочих днів\">\n<link rel=\"apple-touch-icon\" href=\"/icons/apple-touch-icon.png\"><link rel=\"icon\" type=\"image/png\" sizes=\"192x192\" href=\"/icons/icon-192.png\"><link rel=\"stylesheet\" href=\"/styles.css?v=0.4.7\"><title>Календарь робочих днів</title>\n</head><body><div id=\"app\"></div><div id=\"toast\" class=\"toast\"></div><script src=\"./app.js?v=0.4.7\" defer></script></body></html>\n";
+const ADMIN_SHELL_HTML = "<!doctype html><html lang=\"uk\"><head>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<meta name=\"theme-color\" content=\"#f4ead6\"><meta name=\"color-scheme\" content=\"light\">\n<meta name=\"description\" content=\"Календарь робочих днів — control panel.\"><meta name=\"robots\" content=\"noindex,nofollow,noarchive\">\n<meta name=\"mobile-web-app-capable\" content=\"yes\"><meta name=\"apple-mobile-web-app-capable\" content=\"yes\"><meta name=\"apple-mobile-web-app-status-bar-style\" content=\"default\"><meta name=\"apple-mobile-web-app-title\" content=\"Календарь робочих днів\">\n<link rel=\"apple-touch-icon\" href=\"/icons/apple-touch-icon.png\"><link rel=\"icon\" type=\"image/png\" sizes=\"192x192\" href=\"/icons/icon-192.png\"><link rel=\"stylesheet\" href=\"/styles.css?v=0.6.0\"><title>Календарь робочих днів</title>\n</head><body><div id=\"app\"></div><div id=\"toast\" class=\"toast\"></div><script src=\"./app.js?v=0.6.0\" defer></script></body></html>\n";
 
 const json = (body, status = 200, extra = {}) => new Response(JSON.stringify(body), {
   status,
@@ -110,7 +110,7 @@ function localParts(timeZone = 'Europe/Kyiv', now = new Date()) {
 
 function defaultState() {
   return {
-    version: 4,
+    version: 5,
     settings: {
       timeZone: 'Europe/Kyiv',
       shiftStart: '08:00',
@@ -130,6 +130,8 @@ function defaultState() {
     shifts: [],
     recipients: [],
     managers: [],
+    accessUsers: [],
+    accessRequests: [],
     metrics: {},
     workLog: {},
     dayDetails: {},
@@ -147,6 +149,21 @@ function sanitizeState(raw) {
     shifts: Array.isArray(raw.shifts) ? raw.shifts.slice(-800) : [],
     recipients: Array.isArray(raw.recipients) ? raw.recipients.slice(-100) : [],
     managers: Array.isArray(raw.managers) ? raw.managers.slice(-50) : [],
+    accessUsers: Array.isArray(raw.accessUsers)
+      ? raw.accessUsers.slice(-100)
+      : (Array.isArray(raw.managers) ? raw.managers.slice(-50).map(m => ({
+          id: m.id || crypto.randomUUID(),
+          name: m.name || String(m.telegramId || ''),
+          telegramId: normalizeTelegramId(m.telegramId),
+          role: 'manager',
+          enabled: m.enabled !== false,
+          canSetTarget: true,
+          notifications: true,
+          note: '',
+          createdAt: m.createdAt || new Date().toISOString(),
+          updatedAt: m.updatedAt || m.createdAt || new Date().toISOString()
+        })) : []),
+    accessRequests: Array.isArray(raw.accessRequests) ? raw.accessRequests.slice(-100) : [],
     metrics: raw.metrics && typeof raw.metrics === 'object' ? raw.metrics : {},
     workLog: raw.workLog && typeof raw.workLog === 'object' ? raw.workLog : {},
     dayDetails: raw.dayDetails && typeof raw.dayDetails === 'object' ? raw.dayDetails : {},
@@ -212,6 +229,8 @@ function publicStateForRole(state, role) {
   if (role === 'admin') {
     core.recipients = state.recipients;
     core.managers = state.managers;
+    core.accessUsers = state.accessUsers;
+    core.accessRequests = state.accessRequests;
     core.notificationLog = state.notificationLog;
   }
   return core;
@@ -438,31 +457,71 @@ async function currentUser(request, env, state) {
   const session = await verifySession(cookies.hc_session, env.AUTH_SECRET);
   if (!session?.id) return null;
   const id = normalizeTelegramId(session.id);
-  const role = roleForTelegramId(id, env, state);
-  if (role === 'unauthorized') return { ...session, role };
-  return { ...session, role };
+  const access = accessForTelegramId(id, state);
+  const role = id === OWNER_TELEGRAM_ID ? 'admin' : (access?.enabled !== false ? access?.role || 'unauthorized' : 'unauthorized');
+  return {
+    ...session,
+    id,
+    role,
+    access: access ? {
+      id: access.id,
+      canSetTarget: access.canSetTarget !== false,
+      notifications: access.notifications !== false,
+      note: access.note || ''
+    } : null
+  };
 }
 
 function requireRole(user, roles) {
   return !!user && roles.includes(user.role);
 }
 
+function accessForTelegramId(id, state) {
+  const value = normalizeTelegramId(id);
+  return (state.accessUsers || []).find(u => normalizeTelegramId(u.telegramId) === value) || null;
+}
+
 function roleForTelegramId(id, env, state) {
   const value = normalizeTelegramId(id);
-  // Product owner is fixed in code for this deployment. Cloudflare ADMIN_TELEGRAM_ID may remain,
-  // but it is not required for owner recognition.
   if (value === OWNER_TELEGRAM_ID) return 'admin';
-  if (state.managers.some(m => normalizeTelegramId(m.telegramId) === value && m.enabled !== false)) return 'manager';
+  const access = accessForTelegramId(value, state);
+  if (access && access.enabled !== false) return access.role || 'manager';
   return 'unauthorized';
+}
+
+function upsertAccessRequest(state, payload) {
+  const telegramId = normalizeTelegramId(payload?.id);
+  if (!/^\d{5,20}$/.test(telegramId) || telegramId === OWNER_TELEGRAM_ID) return;
+  if (accessForTelegramId(telegramId, state)) {
+    state.accessRequests = (state.accessRequests || []).filter(r => normalizeTelegramId(r.telegramId) !== telegramId);
+    return;
+  }
+  const now = new Date().toISOString();
+  const existing = (state.accessRequests || []).find(r => normalizeTelegramId(r.telegramId) === telegramId);
+  if (existing) {
+    existing.name = cleanText(payload.name, 80) || existing.name || telegramId;
+    existing.username = cleanText(payload.username, 80) || existing.username || '';
+    existing.picture = cleanText(payload.picture, 500) || existing.picture || '';
+    existing.lastLoginAt = now;
+    existing.attempts = Number(existing.attempts || 0) + 1;
+  } else {
+    state.accessRequests = [...(state.accessRequests || []), {
+      id: crypto.randomUUID(), telegramId,
+      name: cleanText(payload.name, 80) || telegramId,
+      username: cleanText(payload.username, 80) || '',
+      picture: cleanText(payload.picture, 500) || '',
+      firstLoginAt: now, lastLoginAt: now, attempts: 1
+    }].slice(-100);
+  }
 }
 
 async function handleAction(request, env, user, state) {
   const body = await request.json().catch(() => null);
   const type = body?.type;
   const p = body?.payload || {};
-  const adminOnly = new Set(['addShift','removeShift','setWorkDay','setDayDetails','setSettings','addRecipient','updateRecipient','removeRecipient','addManager','updateManager','removeManager','clearLogs']);
+  const adminOnly = new Set(['addShift','removeShift','setWorkDay','setDayDetails','setSettings','addRecipient','updateRecipient','removeRecipient','addManager','updateManager','removeManager','addAccessUser','updateAccessUser','removeAccessUser','approveAccessRequest','denyAccessRequest','clearLogs']);
   if (adminOnly.has(type) && !requireRole(user, ['admin'])) return json({ ok: false, error: 'Forbidden' }, 403);
-  if (type === 'setTestTarget' && !requireRole(user, ['manager'])) return json({ ok: false, error: 'Only manager can set the monthly target' }, 403);
+  if (type === 'setTestTarget' && (!requireRole(user, ['manager']) || user.access?.canSetTarget === false)) return json({ ok: false, error: 'Monthly target permission is disabled' }, 403);
 
 
   if (type === 'setDayDetails') {
@@ -570,6 +629,57 @@ async function handleAction(request, env, user, state) {
   }
   if (type === 'removeRecipient') state.recipients = state.recipients.filter(r => r.id !== p.id);
 
+  if (type === 'addAccessUser') {
+    const telegramId = normalizeTelegramId(cleanText(p.telegramId, 30));
+    if (!/^\d{5,20}$/.test(telegramId)) return json({ ok:false,error:'Invalid Telegram user ID' },400);
+    if (telegramId === OWNER_TELEGRAM_ID) return json({ ok:false,error:'Owner already has admin access' },400);
+    const existing = accessForTelegramId(telegramId, state);
+    const now = new Date().toISOString();
+    const record = existing || { id: crypto.randomUUID(), createdAt: now };
+    record.telegramId = telegramId;
+    record.name = cleanText(p.name,80) || record.name || telegramId;
+    record.role = p.role === 'manager' ? 'manager' : 'manager';
+    record.enabled = p.enabled !== false;
+    record.canSetTarget = p.canSetTarget !== false;
+    record.notifications = p.notifications !== false;
+    record.note = cleanText(p.note,160);
+    record.updatedAt = now;
+    if (!existing) state.accessUsers.push(record);
+    state.accessRequests = (state.accessRequests || []).filter(r => normalizeTelegramId(r.telegramId) !== telegramId);
+  }
+  if (type === 'updateAccessUser') {
+    const record = (state.accessUsers || []).find(x => x.id === p.id);
+    if (record) {
+      if (p.name != null) record.name = cleanText(p.name,80) || record.name;
+      if (p.enabled != null) record.enabled = !!p.enabled;
+      if (p.canSetTarget != null) record.canSetTarget = !!p.canSetTarget;
+      if (p.notifications != null) record.notifications = !!p.notifications;
+      if (p.note != null) record.note = cleanText(p.note,160);
+      record.updatedAt = new Date().toISOString();
+    }
+  }
+  if (type === 'removeAccessUser') state.accessUsers = (state.accessUsers || []).filter(x => x.id !== p.id);
+  if (type === 'approveAccessRequest') {
+    const req = (state.accessRequests || []).find(x => x.id === p.id);
+    if (!req) return json({ok:false,error:'Access request not found'},404);
+    const telegramId = normalizeTelegramId(req.telegramId);
+    let record = accessForTelegramId(telegramId, state);
+    const now = new Date().toISOString();
+    if (!record) {
+      record = { id: crypto.randomUUID(), telegramId, createdAt: now };
+      state.accessUsers.push(record);
+    }
+    record.name = cleanText(p.name,80) || req.name || telegramId;
+    record.role = 'manager';
+    record.enabled = true;
+    record.canSetTarget = p.canSetTarget !== false;
+    record.notifications = p.notifications !== false;
+    record.note = cleanText(p.note,160);
+    record.updatedAt = now;
+    state.accessRequests = state.accessRequests.filter(x => x.id !== req.id);
+  }
+  if (type === 'denyAccessRequest') state.accessRequests = (state.accessRequests || []).filter(x => x.id !== p.id);
+
   if (type === 'addManager') {
     const telegramId = normalizeTelegramId(cleanText(p.telegramId, 30));
     if (!/^\d{5,20}$/.test(telegramId)) return json({ ok:false,error:'Invalid Telegram user ID' },400);
@@ -675,6 +785,10 @@ async function telegramOidcCallback(request, env, ctx) {
   try {
     const appState = await readState(env);
     const role = roleForTelegramId(id, env, appState);
+    if (role === 'unauthorized') {
+      upsertAccessRequest(appState, payload);
+      await writeState(env, appState);
+    }
     if (env.TELEGRAM_BOT_TOKEN) {
       const notifyPromise = sendTelegram(env, OWNER_TELEGRAM_ID, loginNotificationText(payload, role, appState.settings.timeZone || 'Europe/Kyiv')).catch(() => null);
       if (ctx?.waitUntil) ctx.waitUntil(notifyPromise); else await notifyPromise;
@@ -826,8 +940,8 @@ export default {
       if (privateResponse) return privateResponse;
     }
 
-    if (path === '/api/health') return json({ ok:true, app:'hodynnyk-calendar', version:'0.5.3' });
-    if (path === '/api/config') return json({ ok:true, authConfigured:authConfigured(env), app:'Hodynnyk', version:'0.5.3', botUsername:String(env.TELEGRAM_BOT_USERNAME || '') });
+    if (path === '/api/health') return json({ ok:true, app:'hodynnyk-calendar', version:'0.6.0' });
+    if (path === '/api/config') return json({ ok:true, authConfigured:authConfigured(env), app:'Hodynnyk', version:'0.6.0', botUsername:String(env.TELEGRAM_BOT_USERNAME || '') });
     if (path === '/api/auth/login') return telegramOidcLogin(request, env);
     if (path === '/api/auth/callback') {
       try { return await telegramOidcCallback(request, env, ctx); }
@@ -884,8 +998,8 @@ export default {
           if (!chat) {
             return json({ ok:false, error:'Чат не знайдено. Відкрийте @HodynnykCalendar_bot, натисніть Start, надішліть будь-яке повідомлення і спробуйте ще раз.' },404);
           }
-          const manager = state.managers.find(m => String(m.telegramId) === telegramId);
-          const preferredName = manager?.name || user.name || user.username || (telegramId === OWNER_TELEGRAM_ID ? 'Admin' : chat.name);
+          const access = accessForTelegramId(telegramId, state);
+          const preferredName = access?.name || user.name || user.username || (telegramId === OWNER_TELEGRAM_ID ? 'Admin' : chat.name);
           let recipient = state.recipients.find(r => String(r.telegramUserId || '') === telegramId);
           if (!recipient) recipient = state.recipients.find(r => String(r.chatId || '') === chat.chatId);
           if (recipient) {
@@ -920,8 +1034,8 @@ export default {
           let synced = 0;
           const syncedUsers = [];
           for (const chat of chats) {
-            const manager = state.managers.find(m => String(m.telegramId) === chat.telegramId);
-            const preferredName = manager?.name || (chat.telegramId === OWNER_TELEGRAM_ID ? 'Admin' : chat.name);
+            const access = accessForTelegramId(chat.telegramId, state);
+            const preferredName = access?.name || (chat.telegramId === OWNER_TELEGRAM_ID ? 'Admin' : chat.name);
             let recipient = state.recipients.find(r => String(r.telegramUserId || '') === chat.telegramId);
             if (!recipient) recipient = state.recipients.find(r => String(r.chatId || '') === chat.chatId);
             if (recipient) {

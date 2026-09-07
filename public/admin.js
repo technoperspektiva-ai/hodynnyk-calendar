@@ -11,7 +11,7 @@ function shell(){
   $('#app').innerHTML=`<main class="shell">
     <header class="topbar admin-topbar"><div class="brand admin-brand"><img class="brand-icon" src="/icons/icon-192.png" alt=""><div><h1>Календарь робочих днів</h1><small>CONTROL</small></div></div><div class="userbar admin-userbar"><div class="admin-user-meta"><span class="pill green">Admin</span><span class="pill">${esc(user.name||user.username||user.id)}</span></div><div class="admin-nav-actions"><a class="btn ghost" href="/">Календар</a>${config.authConfigured?'<a class="btn ghost" href="/api/auth/logout">Вийти</a>':''}</div></div></header>
     <section class="admin-layout">
-      <aside class="card side"><a class="active" href="#recipients">Recipients</a><a href="#managers">Managers</a><a href="#logs">Delivery log</a></aside>
+      <aside class="card side"><a class="active" href="#recipients">Recipients</a><a href="#managers">Доступ</a><a href="#logs">Delivery log</a></aside>
       <div class="stack">
         <section class="card cardpad" id="recipients"></section>
         <section class="card cardpad" id="managers"></section>
@@ -56,15 +56,32 @@ function renderRecipients(){
 function $$(s,root=document){return [...root.querySelectorAll(s)]}
 
 function renderManagers(){
-  const rows=state.managers||[];
+  const users=state.accessUsers||[];
+  const requests=state.accessRequests||[];
   $('#managers').innerHTML=`
-    <div class="section-title"><h2>Manager access</h2><span>${rows.length}</span></div>
-    <div class="formrow"><div class="field"><label>Ім'я</label><input id="mName" class="input" placeholder="QA Manager"></div><div class="field"><label>Telegram user ID</label><input id="mId" class="input" placeholder="123456789"></div></div>
-    <button class="btn primary" id="addManager">Додати керівника</button>
-    <div class="list" style="margin-top:14px">${rows.length?rows.map(m=>`<div class="rowitem"><div><div class="name">${esc(m.name)}</div><div class="meta">Telegram ID ${esc(m.telegramId)}</div></div><div class="actions"><button class="switch ${m.enabled!==false?'on':''}" data-toggle-m="${esc(m.id)}"></button><button class="btn danger" data-del-m="${esc(m.id)}">×</button></div></div>`).join(''):'<div class="empty">Доступ керівнику ще не доданий.</div>'}</div>`;
-  $('#addManager').onclick=async()=>{try{await action('addManager',{name:$('#mName').value,telegramId:$('#mId').value});toast('Керівника додано')}catch(e){toast(e.message)}};
-  $$('[data-toggle-m]').forEach(b=>b.onclick=async()=>{const m=rows.find(x=>x.id===b.dataset.toggleM);await action('updateManager',{id:m.id,enabled:m.enabled===false})});
-  $$('[data-del-m]').forEach(b=>b.onclick=async()=>{if(confirm('Прибрати доступ керівника?'))await action('removeManager',{id:b.dataset.delM})});
+    <div class="section-title"><h2>Доступ користувачів</h2><span>${users.length}</span></div>
+    <div class="formrow">
+      <div class="field"><label>Ім'я</label><input id="uName" class="input" placeholder="QA Manager"></div>
+      <div class="field"><label>Telegram user ID</label><input id="uId" class="input" inputmode="numeric" placeholder="123456789"></div>
+    </div>
+    <div class="formrow compact-access-row">
+      <label class="access-check"><input id="uTarget" type="checkbox" checked> Може ставити планку</label>
+      <label class="access-check"><input id="uNotify" type="checkbox" checked> Telegram-сповіщення</label>
+    </div>
+    <div class="field"><label>Примітка</label><input id="uNote" class="input" placeholder="Наприклад: QA lead"></div>
+    <button class="btn primary" id="addAccessUser">Додати доступ</button>
+
+    ${requests.length?`<div class="access-subtitle">Запити на доступ <span>${requests.length}</span></div>
+      <div class="list access-request-list">${requests.map(r=>`<div class="rowitem access-request"><div><div class="name">${esc(r.name||r.telegramId)}</div><div class="meta">ID ${esc(r.telegramId)}${r.username?` · @${esc(r.username)}`:''} · ${esc(r.lastLoginAt?new Date(r.lastLoginAt).toLocaleString('uk-UA'):'')}</div></div><div class="actions"><button class="btn primary" data-approve-u="${esc(r.id)}">Дозволити</button><button class="btn danger" data-deny-u="${esc(r.id)}">×</button></div></div>`).join('')}</div>`:''}
+
+    <div class="list access-user-list" style="margin-top:14px">${users.length?users.map(u=>`<div class="rowitem access-user"><div class="access-user-main"><div class="name">${esc(u.name||u.telegramId)}</div><div class="meta">Telegram ID ${esc(u.telegramId)} · Керівник${u.note?` · ${esc(u.note)}`:''}</div><div class="access-flags"><span class="mini-pill ${u.canSetTarget!==false?'on':''}">Планка</span><span class="mini-pill ${u.notifications!==false?'on':''}">Telegram</span></div></div><div class="actions"><button class="switch ${u.enabled!==false?'on':''}" data-toggle-u="${esc(u.id)}" aria-label="toggle"></button><button class="btn ghost" data-edit-u="${esc(u.id)}">Редагувати</button><button class="btn danger" data-del-u="${esc(u.id)}">×</button></div></div>`).join(''):'<div class="empty">Користувачів з доступом ще немає.</div>'}</div>`;
+
+  $('#addAccessUser').onclick=async()=>{try{await action('addAccessUser',{name:$('#uName').value,telegramId:$('#uId').value,role:'manager',canSetTarget:$('#uTarget').checked,notifications:$('#uNotify').checked,note:$('#uNote').value});toast('Доступ додано')}catch(e){toast(e.message)}};
+  $$('[data-approve-u]').forEach(b=>b.onclick=async()=>{try{await action('approveAccessRequest',{id:b.dataset.approveU,canSetTarget:true,notifications:true});toast('Доступ дозволено')}catch(e){toast(e.message)}});
+  $$('[data-deny-u]').forEach(b=>b.onclick=async()=>{if(confirm('Відхилити запит?'))await action('denyAccessRequest',{id:b.dataset.denyU})});
+  $$('[data-toggle-u]').forEach(b=>b.onclick=async()=>{const u=users.find(x=>x.id===b.dataset.toggleU);await action('updateAccessUser',{id:u.id,enabled:u.enabled===false})});
+  $$('[data-edit-u]').forEach(b=>b.onclick=async()=>{const u=users.find(x=>x.id===b.dataset.editU);if(!u)return;const name=prompt('Ім\'я',u.name||'');if(name===null)return;const note=prompt('Примітка',u.note||'');if(note===null)return;const canSetTarget=confirm('Дозволити змінювати місячну планку?');const notifications=confirm('Дозволити Telegram-сповіщення?');await action('updateAccessUser',{id:u.id,name,note,canSetTarget,notifications});});
+  $$('[data-del-u]').forEach(b=>b.onclick=async()=>{if(confirm('Прибрати доступ користувача?'))await action('removeAccessUser',{id:b.dataset.delU})});
 }
 
 function logTypeLabel(l){

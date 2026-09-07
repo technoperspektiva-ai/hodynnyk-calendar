@@ -25,7 +25,7 @@ When `types` includes `azs`, Worker creates/updates a shift for the same date so
 Manager calendar now has a compact Telegram self-sync button next to Excel. It calls `/api/telegram/sync-self` and only binds the currently authenticated manager/admin Telegram account to its private bot chat.
 
 
-## v0.5.0 sync visibility fix
+## v0.6.0 sync visibility fix
 - Fixed stale PWA cache version (was still 0.4.4).
 - Added cache-busting query params to main CSS/JS.
 - Telegram self-sync button is visible for both authenticated admin and manager next to Excel.
@@ -33,3 +33,8 @@ Manager calendar now has a compact Telegram self-sync button next to Excel. It c
 
 ## Telegram self-sync
 Both the main manager UI and admin self-sync use the authenticated session user id. The hardcoded owner id is only an authorization rule for admin access, never the sync target.
+
+
+## Access registry (v0.6.0)
+
+Authorization source of truth is `state.accessUsers`. The owner Telegram ID remains a code-level fallback. Unauthorized OIDC logins are recorded in `state.accessRequests` with the exact Telegram ID returned by Telegram, so the administrator can approve access without manually copying IDs. Legacy `state.managers` is read only for migration compatibility.
