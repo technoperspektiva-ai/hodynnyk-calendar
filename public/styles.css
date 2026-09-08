@@ -212,3 +212,8 @@
 .collapsible-card.section-collapsed .section-chevron{transform:rotate(-90deg);background:#f4e8d5}
 .collapsible-card.section-collapsed{box-shadow:0 8px 28px rgba(72,48,30,.07)}
 @media(max-width:700px){.section-toggle{padding-bottom:11px}.section-chevron{width:30px;height:30px;flex-basis:30px;border-radius:10px}.collapsible-card.section-collapsed{padding-top:14px;padding-bottom:14px}}
+
+
+/* v0.6.3 — automatic AЗС push scheduler */
+.auto-push-toolbar{display:flex;gap:10px;align-items:end;flex-wrap:wrap}.auto-push-count-field{max-width:210px}.auto-push-note{margin-top:8px}.auto-push-list{display:grid;gap:10px}.auto-push-row{display:grid;grid-template-columns:34px minmax(140px,220px) 1fr;align-items:end;gap:12px}.auto-push-index{width:30px;height:30px;border-radius:999px;display:grid;place-items:center;background:rgba(70,89,65,.09);font-weight:800;align-self:center}.auto-push-time{margin:0}.auto-push-actions{justify-content:flex-end;align-self:center}
+@media(max-width:620px){.auto-push-toolbar{display:grid;grid-template-columns:1fr 1fr}.auto-push-count-field{grid-column:1/-1;max-width:none}.auto-push-row{grid-template-columns:34px 1fr auto;gap:8px}.auto-push-actions{gap:6px}.auto-push-actions .btn{min-width:40px;padding-inline:10px}}

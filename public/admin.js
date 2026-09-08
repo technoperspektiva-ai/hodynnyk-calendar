@@ -31,9 +31,10 @@ function shell(){
   $('#app').innerHTML=`<main class="shell">
     <header class="topbar admin-topbar"><div class="brand admin-brand"><img class="brand-icon" src="/icons/icon-192.png" alt=""><div><h1>Календарь робочих днів</h1><small>CONTROL</small></div></div><div class="userbar admin-userbar"><div class="admin-user-meta"><span class="pill green">Admin</span><span class="pill">${esc(user.name||user.username||user.id)}</span></div><div class="admin-nav-actions"><a class="btn ghost" href="/">Календар</a>${config.authConfigured?'<a class="btn ghost" href="/api/auth/logout">Вийти</a>':''}</div></div></header>
     <section class="admin-layout">
-      <aside class="card side"><a class="active" href="#recipients">Recipients</a><a href="#managers">Доступ</a><a href="#logs">Delivery log</a></aside>
+      <aside class="card side"><a class="active" href="#recipients">Recipients</a><a href="#azsPushes">Автопуші АЗС</a><a href="#managers">Доступ</a><a href="#logs">Delivery log</a></aside>
       <div class="stack">
         <section class="card cardpad" id="recipients"></section>
+        <section class="card cardpad" id="azsPushes"></section>
         <section class="card cardpad" id="managers"></section>
         <section class="card cardpad" id="logs"></section>
       </div>
@@ -74,6 +75,44 @@ function renderRecipients(){
   wireCollapsible('recipients',false);
 }
 
+function renderAzsPushes(){
+  const rows=[...(state.azsAutoPushes||[])].sort((a,b)=>String(a.time).localeCompare(String(b.time)));
+  $('#azsPushes').innerHTML=`
+    ${sectionHeader('azsPushes','Автопуші АЗС',rows.length)}
+    <div class="collapse-body">
+      <div class="auto-push-toolbar">
+        <div class="field auto-push-count-field"><label>Кількість пушів на день</label><input id="azsPushCount" class="input" type="number" inputmode="numeric" min="0" max="12" value="${rows.length}"></div>
+        <button class="btn primary" id="applyAzsPushCount">Застосувати</button>
+        <button class="btn" id="addAzsPush">+ Додати час</button>
+      </div>
+      <div class="meta auto-push-note">Пуш відправляється тільки коли на завтра в календарі стоїть АЗС.</div>
+      <div class="list auto-push-list" style="margin-top:14px">
+        ${rows.length?rows.map((r,i)=>`<div class="rowitem auto-push-row">
+          <div class="auto-push-index">${i+1}</div>
+          <div class="field auto-push-time"><label>Час</label><input class="input" type="time" value="${esc(r.time)}" data-azs-time="${esc(r.id)}"></div>
+          <div class="actions auto-push-actions"><button class="switch ${r.enabled!==false?'on':''}" data-toggle-azs="${esc(r.id)}" aria-label="toggle"></button><button class="btn danger" data-del-azs="${esc(r.id)}">×</button></div>
+        </div>`).join(''):'<div class="empty">Автоматичні пуші вимкнені.</div>'}
+      </div>
+    </div>`;
+
+  $('#addAzsPush').onclick=async()=>{try{await action('addAzsAutoPush',{time:'19:00',enabled:true});toast('Час додано')}catch(e){toast(e.message)}};
+  $('#applyAzsPushCount').onclick=async()=>{
+    try{
+      const count=Math.max(0,Math.min(12,Number($('#azsPushCount').value||0)));
+      const current=[...(state.azsAutoPushes||[])].sort((a,b)=>String(a.time).localeCompare(String(b.time)));
+      const defaults=['09:00','12:00','15:00','18:00','19:00','20:00','21:00','22:00','08:00','10:00','16:00','23:00'];
+      const items=[];
+      for(let i=0;i<count;i++) items.push(current[i]||{time:defaults[i]||'19:00',enabled:true});
+      await action('replaceAzsAutoPushes',{items});
+      toast(`Пушів на день: ${count}`);
+    }catch(e){toast(e.message)}
+  };
+  $$('[data-azs-time]').forEach(input=>input.onchange=async()=>{try{await action('updateAzsAutoPush',{id:input.dataset.azsTime,time:input.value});toast('Час збережено')}catch(e){toast(e.message)}});
+  $$('[data-toggle-azs]').forEach(b=>b.onclick=async()=>{const r=rows.find(x=>x.id===b.dataset.toggleAzs);if(r)await action('updateAzsAutoPush',{id:r.id,enabled:r.enabled===false})});
+  $$('[data-del-azs]').forEach(b=>b.onclick=async()=>{if(confirm('Видалити цей автоматичний пуш?'))await action('removeAzsAutoPush',{id:b.dataset.delAzs})});
+  wireCollapsible('azsPushes',false);
+}
+
 function $$(s,root=document){return [...root.querySelectorAll(s)]}
 
 function renderManagers(){
@@ -109,6 +148,7 @@ function renderManagers(){
 function logTypeLabel(l){
   if(l.type==='test') return 'Тест';
   if(l.type==='manual-tomorrow') return 'Ручний пуш';
+  if(l.type==='auto-azs') return `Автопуш АЗС${l.scheduleTime?` ${l.scheduleTime}`:''}`;
   return l.key?.startsWith('test:') ? 'Тест' : 'Cron / перевірка';
 }
 function logErrorText(l){
@@ -161,7 +201,7 @@ function renderLogs(){
   wireCollapsible('logs',true);
 }
 
-function renderAll(){renderRecipients();renderManagers();renderLogs()}
+function renderAll(){renderRecipients();renderAzsPushes();renderManagers();renderLogs()}
 async function reload(){const d=await api('/api/state');user=d.user;state=d.state;renderAll()}
 
 async function boot(){

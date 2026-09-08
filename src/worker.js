@@ -6,7 +6,7 @@ const JSON_HEADERS = {
 const enc = new TextEncoder();
 const OWNER_TELEGRAM_ID = '375938798';
 const dec = new TextDecoder();
-const ADMIN_SHELL_HTML = "<!doctype html><html lang=\"uk\"><head>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<meta name=\"theme-color\" content=\"#f4ead6\"><meta name=\"color-scheme\" content=\"light\">\n<meta name=\"description\" content=\"Календарь робочих днів — control panel.\"><meta name=\"robots\" content=\"noindex,nofollow,noarchive\">\n<meta name=\"mobile-web-app-capable\" content=\"yes\"><meta name=\"apple-mobile-web-app-capable\" content=\"yes\"><meta name=\"apple-mobile-web-app-status-bar-style\" content=\"default\"><meta name=\"apple-mobile-web-app-title\" content=\"Календарь робочих днів\">\n<link rel=\"apple-touch-icon\" href=\"/icons/apple-touch-icon.png\"><link rel=\"icon\" type=\"image/png\" sizes=\"192x192\" href=\"/icons/icon-192.png\"><link rel=\"stylesheet\" href=\"/styles.css?v=0.6.2\"><title>Календарь робочих днів</title>\n</head><body><div id=\"app\"></div><div id=\"toast\" class=\"toast\"></div><script src=\"./app.js?v=0.6.2\" defer></script></body></html>\n";
+const ADMIN_SHELL_HTML = "<!doctype html><html lang=\"uk\"><head>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<meta name=\"theme-color\" content=\"#f4ead6\"><meta name=\"color-scheme\" content=\"light\">\n<meta name=\"description\" content=\"Календарь робочих днів — control panel.\"><meta name=\"robots\" content=\"noindex,nofollow,noarchive\">\n<meta name=\"mobile-web-app-capable\" content=\"yes\"><meta name=\"apple-mobile-web-app-capable\" content=\"yes\"><meta name=\"apple-mobile-web-app-status-bar-style\" content=\"default\"><meta name=\"apple-mobile-web-app-title\" content=\"Календарь робочих днів\">\n<link rel=\"apple-touch-icon\" href=\"/icons/apple-touch-icon.png\"><link rel=\"icon\" type=\"image/png\" sizes=\"192x192\" href=\"/icons/icon-192.png\"><link rel=\"stylesheet\" href=\"/styles.css?v=0.6.3\"><title>Календарь робочих днів</title>\n</head><body><div id=\"app\"></div><div id=\"toast\" class=\"toast\"></div><script src=\"./app.js?v=0.6.3\" defer></script></body></html>\n";
 
 const json = (body, status = 200, extra = {}) => new Response(JSON.stringify(body), {
   status,
@@ -125,7 +125,7 @@ function localParts(timeZone = 'Europe/Kyiv', now = new Date()) {
 
 function defaultState() {
   return {
-    version: 5,
+    version: 6,
     settings: {
       timeZone: 'Europe/Kyiv',
       shiftStart: '08:00',
@@ -144,6 +144,7 @@ function defaultState() {
     },
     shifts: [],
     recipients: [],
+    azsAutoPushes: [],
     managers: [],
     accessUsers: [],
     accessRequests: [],
@@ -163,6 +164,9 @@ function sanitizeState(raw) {
     settings: { ...base.settings, ...(raw.settings || {}), qa: { ...base.settings.qa, ...(raw.settings?.qa || {}) } },
     shifts: Array.isArray(raw.shifts) ? raw.shifts.slice(-800) : [],
     recipients: Array.isArray(raw.recipients) ? raw.recipients.slice(-100) : [],
+    azsAutoPushes: Array.isArray(raw.azsAutoPushes)
+      ? raw.azsAutoPushes.filter(x => x && validateTime(x.time)).slice(-12).map(x => ({ ...x, enabled: x.enabled !== false }))
+      : base.azsAutoPushes,
     managers: Array.isArray(raw.managers) ? raw.managers.slice(-50) : [],
     accessUsers: Array.isArray(raw.accessUsers)
       ? raw.accessUsers.slice(-100)
@@ -243,6 +247,7 @@ function publicStateForRole(state, role) {
   };
   if (role === 'admin') {
     core.recipients = state.recipients;
+    core.azsAutoPushes = state.azsAutoPushes;
     core.managers = state.managers;
     core.accessUsers = state.accessUsers;
     core.accessRequests = state.accessRequests;
@@ -573,7 +578,7 @@ async function handleAction(request, env, user, state) {
   const body = await request.json().catch(() => null);
   const type = body?.type;
   const p = body?.payload || {};
-  const adminOnly = new Set(['addShift','removeShift','setWorkDay','setDayDetails','setSettings','addRecipient','updateRecipient','removeRecipient','addManager','updateManager','removeManager','addAccessUser','updateAccessUser','removeAccessUser','approveAccessRequest','denyAccessRequest','clearLogs']);
+  const adminOnly = new Set(['addShift','removeShift','setWorkDay','setDayDetails','setSettings','addRecipient','updateRecipient','removeRecipient','addAzsAutoPush','updateAzsAutoPush','removeAzsAutoPush','replaceAzsAutoPushes','addManager','updateManager','removeManager','addAccessUser','updateAccessUser','removeAccessUser','approveAccessRequest','denyAccessRequest','clearLogs']);
   if (adminOnly.has(type) && !requireRole(user, ['admin'])) return json({ ok: false, error: 'Forbidden' }, 403);
   if (type === 'setTestTarget' && (!requireRole(user, ['manager']) || user.access?.canSetTarget === false)) return json({ ok: false, error: 'Monthly target permission is disabled' }, 403);
 
@@ -682,6 +687,33 @@ async function handleAction(request, env, user, state) {
     if (r) { if (p.name != null) r.name = cleanText(p.name,60); if (p.enabled != null) r.enabled = !!p.enabled; }
   }
   if (type === 'removeRecipient') state.recipients = state.recipients.filter(r => r.id !== p.id);
+
+  if (type === 'addAzsAutoPush') {
+    const time = validateTime(p.time) ? p.time : '19:00';
+    if ((state.azsAutoPushes || []).length >= 12) return json({ok:false,error:'Maximum 12 automatic pushes per day'},400);
+    state.azsAutoPushes.push({ id: crypto.randomUUID(), time, enabled: p.enabled !== false, createdAt:new Date().toISOString() });
+    state.azsAutoPushes.sort((a,b)=>a.time.localeCompare(b.time));
+  }
+  if (type === 'updateAzsAutoPush') {
+    const item = (state.azsAutoPushes || []).find(x => x.id === p.id);
+    if (item) {
+      if (p.time != null) { if (!validateTime(p.time)) return json({ok:false,error:'Invalid time'},400); item.time = p.time; }
+      if (p.enabled != null) item.enabled = !!p.enabled;
+      item.updatedAt = new Date().toISOString();
+      state.azsAutoPushes.sort((a,b)=>a.time.localeCompare(b.time));
+    }
+  }
+  if (type === 'removeAzsAutoPush') state.azsAutoPushes = (state.azsAutoPushes || []).filter(x => x.id !== p.id);
+  if (type === 'replaceAzsAutoPushes') {
+    if (!Array.isArray(p.items)) return json({ok:false,error:'Invalid push schedule'},400);
+    if (p.items.length > 12) return json({ok:false,error:'Maximum 12 automatic pushes per day'},400);
+    const now = new Date().toISOString();
+    state.azsAutoPushes = p.items.map((x,i) => {
+      const time = String(x?.time || '');
+      if (!validateTime(time)) throw new Error(`Invalid time #${i+1}`);
+      return { id: cleanText(x?.id,80) || crypto.randomUUID(), time, enabled:x?.enabled !== false, createdAt:x?.createdAt || now, updatedAt:now };
+    }).sort((a,b)=>a.time.localeCompare(b.time));
+  }
 
   if (type === 'addAccessUser') {
     const telegramId = normalizeTelegramId(cleanText(p.telegramId, 30));
@@ -855,8 +887,8 @@ async function telegramOidcCallback(request, env, ctx) {
 async function runNotificationCycle(env, force = false) {
   let state = await readState(env);
   const local = localParts(state.settings.timeZone || 'Europe/Kyiv');
-  const [notifyHour] = String(state.settings.notifyAt || '19:00').split(':').map(Number);
-  if (!force && local.hour !== notifyHour) return { ok:true, skipped:'hour', local };
+  const [notifyHour, notifyMinute] = String(state.settings.notifyAt || '19:00').split(':').map(Number);
+  if (!force && (local.hour !== notifyHour || local.minute !== notifyMinute)) return { ok:true, skipped:'time', local };
   const tomorrow = addDays(local.date, 1);
   const absence = absenceForDate(tomorrow, state);
   if (!absence && !force) return { ok:true, skipped:'no-absence', tomorrow };
@@ -882,6 +914,61 @@ async function runNotificationCycle(env, force = false) {
   state.notificationLog = state.notificationLog.slice(-300);
   await writeState(env, state);
   return { ok:true, tomorrow, absence, results };
+}
+
+async function runAzsAutoPushCycle(env) {
+  const state = await readState(env);
+  const local = localParts(state.settings.timeZone || 'Europe/Kyiv');
+  const hhmm = `${String(local.hour).padStart(2,'0')}:${String(local.minute).padStart(2,'0')}`;
+  const schedules = (state.azsAutoPushes || []).filter(x => x.enabled !== false && x.time === hhmm);
+  if (!schedules.length) return { ok:true, skipped:'no-schedule', local, time:hhmm };
+
+  const tomorrow = addDays(local.date, 1);
+  const shift = state.shifts.find(s => s.date === tomorrow);
+  if (!shift) return { ok:true, skipped:'no-azs-shift', tomorrow, time:hhmm };
+
+  const workTypes = state.workLog?.[tomorrow] || state.dayDetails?.[tomorrow]?.types || [];
+  if (!Array.isArray(workTypes) || !workTypes.includes('azs')) return { ok:true, skipped:'not-marked-azs', tomorrow, time:hhmm };
+
+  const active = state.recipients.filter(r => r.enabled !== false && String(r.chatId || '').trim());
+  if (!active.length) return { ok:true, skipped:'no-recipients', tomorrow, time:hhmm };
+
+  const absence = absenceForDate(tomorrow, state);
+  const text = tomorrowShiftText(tomorrow, shift, absence);
+  const results = [];
+  let changed = false;
+
+  for (const schedule of schedules) {
+    for (const recipient of active) {
+      const key = `azs-auto:${tomorrow}:${schedule.id}:${recipient.chatId}`;
+      if (state.notificationLog.some(l => l.key === key && l.status === 'sent')) {
+        results.push({ scheduleId:schedule.id, time:schedule.time, recipient:recipient.name, status:'duplicate-skip' });
+        continue;
+      }
+      try {
+        await sendTelegram(env, recipient.chatId, text);
+        state.notificationLog.push({
+          id:crypto.randomUUID(), key, type:'auto-azs', scheduleId:schedule.id, scheduleTime:schedule.time,
+          date:tomorrow, recipientId:recipient.id, recipientName:recipient.name, chatId:recipient.chatId,
+          status:'sent', text, at:new Date().toISOString()
+        });
+        results.push({ scheduleId:schedule.id, time:schedule.time, recipient:recipient.name, status:'sent' });
+      } catch (error) {
+        state.notificationLog.push({
+          id:crypto.randomUUID(), key, type:'auto-azs', scheduleId:schedule.id, scheduleTime:schedule.time,
+          date:tomorrow, recipientId:recipient.id, recipientName:recipient.name, chatId:recipient.chatId,
+          status:'error', ...telegramErrorFields(error), at:new Date().toISOString()
+        });
+        results.push({ scheduleId:schedule.id, time:schedule.time, recipient:recipient.name, status:'error', error:String(error.message || error) });
+      }
+      changed = true;
+    }
+  }
+  if (changed) {
+    state.notificationLog = state.notificationLog.slice(-300);
+    await writeState(env, state);
+  }
+  return { ok:true, tomorrow, time:hhmm, results };
 }
 
 async function sendTomorrowShiftNow(env) {
@@ -995,8 +1082,8 @@ export default {
       if (privateResponse) return privateResponse;
     }
 
-    if (path === '/api/health') return json({ ok:true, app:'hodynnyk-calendar', version:'0.6.1' });
-    if (path === '/api/config') return json({ ok:true, authConfigured:authConfigured(env), app:'Hodynnyk', version:'0.6.1', botUsername:String(env.TELEGRAM_BOT_USERNAME || '') });
+    if (path === '/api/health') return json({ ok:true, app:'hodynnyk-calendar', version:'0.6.3' });
+    if (path === '/api/config') return json({ ok:true, authConfigured:authConfigured(env), app:'Hodynnyk', version:'0.6.3', botUsername:String(env.TELEGRAM_BOT_USERNAME || '') });
     if (path === '/api/auth/login') return telegramOidcLogin(request, env);
     if (path === '/api/auth/callback') {
       try { return await telegramOidcCallback(request, env, ctx); }
@@ -1154,6 +1241,9 @@ export default {
   },
 
   async scheduled(controller, env, ctx) {
-    ctx.waitUntil(runNotificationCycle(env, false));
+    ctx.waitUntil(Promise.all([
+      runNotificationCycle(env, false),
+      runAzsAutoPushCycle(env)
+    ]));
   }
 };
