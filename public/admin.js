@@ -2,6 +2,26 @@ const $ = (s, root=document) => root.querySelector(s);
 const esc = v => String(v ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
 let state=null, user=null, config=null;
 
+const COLLAPSE_KEY='hodynnyk:admin-sections';
+function collapsePrefs(){try{return JSON.parse(localStorage.getItem(COLLAPSE_KEY)||'{}')}catch{return {}}}
+function sectionHeader(id,title,count){return `<button class="section-title section-toggle" type="button" data-section-toggle="${id}" aria-expanded="true"><span class="section-toggle-main"><span class="section-chevron" aria-hidden="true"></span><h2>${title}</h2></span><span>${count}</span></button>`}
+function wireCollapsible(id,defaultCollapsed=false){
+  const section=$(`#${id}`); if(!section)return;
+  section.classList.add('collapsible-card');
+  const prefs=collapsePrefs();
+  const collapsed=Object.prototype.hasOwnProperty.call(prefs,id)?!!prefs[id]:defaultCollapsed;
+  section.classList.toggle('section-collapsed',collapsed);
+  const toggle=section.querySelector('[data-section-toggle]');
+  if(!toggle)return;
+  toggle.setAttribute('aria-expanded',String(!collapsed));
+  toggle.onclick=()=>{
+    const next=!section.classList.contains('section-collapsed');
+    section.classList.toggle('section-collapsed',next);
+    toggle.setAttribute('aria-expanded',String(!next));
+    const out=collapsePrefs();out[id]=next;localStorage.setItem(COLLAPSE_KEY,JSON.stringify(out));
+  };
+}
+
 function toast(text){const el=$('#toast');el.textContent=text;el.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>el.classList.remove('show'),2200)}
 async function api(url,options={}){const r=await fetch(url,{...options,headers:{'content-type':'application/json',...(options.headers||{})}});const d=await r.json().catch(()=>({}));if(!r.ok){const e=new Error(d.error||`HTTP ${r.status}`);e.status=r.status;e.data=d;throw e}return d}
 
@@ -26,8 +46,8 @@ async function action(type,payload){const d=await api('/api/action',{method:'POS
 function renderRecipients(){
   const rows=state.recipients||[];
   $('#recipients').innerHTML=`
-    <div class="section-title"><h2>Telegram recipients</h2><span>${rows.length}</span></div>
-    <div class="formrow"><div class="field"><label>Назва</label><input id="rName" class="input" placeholder="QA Lead"></div><div class="field"><label>Telegram chat ID</label><input id="rChat" class="input" placeholder="123456789 або -100…"></div></div>
+    ${sectionHeader('recipients','Telegram recipients',rows.length)}
+    <div class="collapse-body"><div class="formrow"><div class="field"><label>Назва</label><input id="rName" class="input" placeholder="QA Lead"></div><div class="field"><label>Telegram chat ID</label><input id="rChat" class="input" placeholder="123456789 або -100…"></div></div>
     <button class="btn primary" id="addRecipient">Додати отримувача</button>
     <div class="list" style="margin-top:14px">${rows.length?rows.map(r=>`<div class="rowitem"><div><div class="name">${esc(r.name)}</div><div class="meta">chat_id ${esc(r.chatId)}${r.telegramUserId?` · user ${esc(r.telegramUserId)}`:''}</div></div><div class="actions"><button class="switch ${r.enabled!==false?'on':''}" data-toggle-r="${esc(r.id)}" aria-label="toggle"></button><button class="btn ghost" data-test-r="${esc(r.id)}">test</button><button class="btn danger" data-del-r="${esc(r.id)}">×</button></div></div>`).join(''):'<div class="empty">Отримувачів поки немає.</div>'}</div>
     <div class="actions admin-action-grid" style="margin-top:14px">
@@ -35,7 +55,7 @@ function renderRecipients(){
       <button class="btn" id="runNow">Запустити QA-перевірку</button>
       <button class="btn ghost" id="syncBot">Синхронізувати бот</button>
       ${config?.botUsername ? `<a class="btn ghost bot-open" href="https://t.me/${esc(config.botUsername)}" target="_blank" rel="noopener">Відкрити @${esc(config.botUsername)}</a>` : ''}
-    </div>`;
+    </div></div>`;
   $('#addRecipient').onclick=async()=>{try{await action('addRecipient',{name:$('#rName').value,chatId:$('#rChat').value});toast('Отримувача додано')}catch(e){toast(e.message)}};
   $$('[data-toggle-r]').forEach(b=>b.onclick=async()=>{const r=rows.find(x=>x.id===b.dataset.toggleR);await action('updateRecipient',{id:r.id,enabled:r.enabled===false});});
   $$('[data-del-r]').forEach(b=>b.onclick=async()=>{if(confirm('Видалити отримувача?'))await action('removeRecipient',{id:b.dataset.delR})});
@@ -51,6 +71,7 @@ function renderRecipients(){
   };
   $('#runNow').onclick=async()=>{try{const d=await api('/api/notifications/run',{method:'POST',body:'{}'});if(d.skipped==='no-recipients') toast('Немає активних отримувачів');else {const sent=(d.results||[]).filter(x=>x.status==='sent').length;toast(`Перевірку надіслано: ${sent}`)}await reload()}catch(e){toast(e.message)}};
   $('#syncBot').onclick=async()=>{try{const d=await api('/api/telegram/sync-self',{method:'POST',body:'{}'});toast(d.message||`Telegram синхронізовано: ${d.chatId||''}`);await reload()}catch(e){toast(e.data?.telegramDescription||e.message)}};
+  wireCollapsible('recipients',false);
 }
 
 function $$(s,root=document){return [...root.querySelectorAll(s)]}
@@ -59,8 +80,8 @@ function renderManagers(){
   const users=state.accessUsers||[];
   const requests=state.accessRequests||[];
   $('#managers').innerHTML=`
-    <div class="section-title"><h2>Доступ користувачів</h2><span>${users.length}</span></div>
-    <div class="formrow">
+    ${sectionHeader('managers','Доступ користувачів',users.length)}
+    <div class="collapse-body"><div class="formrow">
       <div class="field"><label>Ім'я</label><input id="uName" class="input" placeholder="QA Manager"></div>
       <div class="field"><label>Telegram user ID</label><input id="uId" class="input" inputmode="numeric" placeholder="123456789"></div>
     </div>
@@ -74,7 +95,7 @@ function renderManagers(){
     ${requests.length?`<div class="access-subtitle">Запити на доступ <span>${requests.length}</span></div>
       <div class="list access-request-list">${requests.map(r=>`<div class="rowitem access-request"><div><div class="name">${esc(r.name||r.telegramId)}</div><div class="meta">ID ${esc(r.telegramId)}${r.username?` · @${esc(r.username)}`:''} · ${esc(r.lastLoginAt?new Date(r.lastLoginAt).toLocaleString('uk-UA'):'')}</div></div><div class="actions"><button class="btn primary" data-approve-u="${esc(r.id)}">Дозволити</button><button class="btn danger" data-deny-u="${esc(r.id)}">×</button></div></div>`).join('')}</div>`:''}
 
-    <div class="list access-user-list" style="margin-top:14px">${users.length?users.map(u=>`<div class="rowitem access-user"><div class="access-user-main"><div class="name">${esc(u.name||u.telegramId)}</div><div class="meta">Telegram ID ${esc(u.telegramId)} · Керівник${u.note?` · ${esc(u.note)}`:''}</div><div class="access-flags"><span class="mini-pill ${u.canSetTarget!==false?'on':''}">Планка</span><span class="mini-pill ${u.notifications!==false?'on':''}">Telegram</span></div></div><div class="actions"><button class="switch ${u.enabled!==false?'on':''}" data-toggle-u="${esc(u.id)}" aria-label="toggle"></button><button class="btn ghost" data-edit-u="${esc(u.id)}">Редагувати</button><button class="btn danger" data-del-u="${esc(u.id)}">×</button></div></div>`).join(''):'<div class="empty">Користувачів з доступом ще немає.</div>'}</div>`;
+    <div class="list access-user-list" style="margin-top:14px">${users.length?users.map(u=>`<div class="rowitem access-user"><div class="access-user-main"><div class="name">${esc(u.name||u.telegramId)}</div><div class="meta">Telegram ID ${esc(u.telegramId)} · Керівник${u.note?` · ${esc(u.note)}`:''}</div><div class="access-flags"><span class="mini-pill ${u.canSetTarget!==false?'on':''}">Планка</span><span class="mini-pill ${u.notifications!==false?'on':''}">Telegram</span></div></div><div class="actions"><button class="switch ${u.enabled!==false?'on':''}" data-toggle-u="${esc(u.id)}" aria-label="toggle"></button><button class="btn ghost" data-edit-u="${esc(u.id)}">Редагувати</button><button class="btn danger" data-del-u="${esc(u.id)}">×</button></div></div>`).join(''):'<div class="empty">Користувачів з доступом ще немає.</div>'}</div></div>`;
 
   $('#addAccessUser').onclick=async()=>{try{await action('addAccessUser',{name:$('#uName').value,telegramId:$('#uId').value,role:'manager',canSetTarget:$('#uTarget').checked,notifications:$('#uNotify').checked,note:$('#uNote').value});toast('Доступ додано')}catch(e){toast(e.message)}};
   $$('[data-approve-u]').forEach(b=>b.onclick=async()=>{try{await action('approveAccessRequest',{id:b.dataset.approveU,canSetTarget:true,notifications:true});toast('Доступ дозволено')}catch(e){toast(e.message)}});
@@ -82,6 +103,7 @@ function renderManagers(){
   $$('[data-toggle-u]').forEach(b=>b.onclick=async()=>{const u=users.find(x=>x.id===b.dataset.toggleU);await action('updateAccessUser',{id:u.id,enabled:u.enabled===false})});
   $$('[data-edit-u]').forEach(b=>b.onclick=async()=>{const u=users.find(x=>x.id===b.dataset.editU);if(!u)return;const name=prompt('Ім\'я',u.name||'');if(name===null)return;const note=prompt('Примітка',u.note||'');if(note===null)return;const canSetTarget=confirm('Дозволити змінювати місячну планку?');const notifications=confirm('Дозволити Telegram-сповіщення?');await action('updateAccessUser',{id:u.id,name,note,canSetTarget,notifications});});
   $$('[data-del-u]').forEach(b=>b.onclick=async()=>{if(confirm('Прибрати доступ користувача?'))await action('removeAccessUser',{id:b.dataset.delU})});
+  wireCollapsible('managers',false);
 }
 
 function logTypeLabel(l){
@@ -131,11 +153,12 @@ function logsToTxt(){
 function renderLogs(){
   const all=[...(state.notificationLog||[])].reverse();
   const rows=all.slice(0,100);
-  $('#logs').innerHTML=`<div class="section-title"><h2>Telegram logs</h2><span>${all.length}</span></div>
-    ${rows.length?`<div class="log-table-wrap"><table class="table"><thead><tr><th>Коли</th><th>Тип</th><th>Кому / chat_id</th><th>Статус</th><th>Деталі</th></tr></thead><tbody>${rows.map(l=>`<tr><td>${esc(l.at?new Date(l.at).toLocaleString('uk-UA'):'—')}</td><td>${esc(logTypeLabel(l))}</td><td><div>${esc(l.recipientName||'—')}</div><div class="meta">${esc(l.chatId||'—')}</div></td><td class="${l.status==='sent'?'success':'error'}">${esc(String(l.status||'—').toUpperCase())}</td><td class="log-detail">${esc(l.status==='error'?logErrorText(l):(l.text||'OK'))}</td></tr>`).join('')}</tbody></table></div><div class="log-cards">${rows.map(l=>`<article class="log-card"><div class="log-card-head"><strong>${esc(logTypeLabel(l))}</strong><span class="${l.status==='sent'?'success':'error'}">${esc(String(l.status||'—').toUpperCase())}</span></div><div class="log-card-time">${esc(l.at?new Date(l.at).toLocaleString('uk-UA'):'—')}</div><div class="log-card-recipient">${esc(l.recipientName||'—')} <span>${esc(l.chatId||'—')}</span></div><div class="log-card-detail">${esc(l.status==='error'?logErrorText(l):(l.text||'OK'))}</div></article>`).join('')}</div>`:'<div class="empty">Відправок ще не було.</div>'}
-    <div class="actions log-actions" style="margin-top:14px"><button class="btn" id="downloadLogs">Зберегти TXT</button><button class="btn danger" id="clearLogs">Очистити журнал</button></div>`;
+  $('#logs').innerHTML=`${sectionHeader('logs','Telegram logs',all.length)}
+    <div class="collapse-body">${rows.length?`<div class="log-table-wrap"><table class="table"><thead><tr><th>Коли</th><th>Тип</th><th>Кому / chat_id</th><th>Статус</th><th>Деталі</th></tr></thead><tbody>${rows.map(l=>`<tr><td>${esc(l.at?new Date(l.at).toLocaleString('uk-UA'):'—')}</td><td>${esc(logTypeLabel(l))}</td><td><div>${esc(l.recipientName||'—')}</div><div class="meta">${esc(l.chatId||'—')}</div></td><td class="${l.status==='sent'?'success':'error'}">${esc(String(l.status||'—').toUpperCase())}</td><td class="log-detail">${esc(l.status==='error'?logErrorText(l):(l.text||'OK'))}</td></tr>`).join('')}</tbody></table></div><div class="log-cards">${rows.map(l=>`<article class="log-card"><div class="log-card-head"><strong>${esc(logTypeLabel(l))}</strong><span class="${l.status==='sent'?'success':'error'}">${esc(String(l.status||'—').toUpperCase())}</span></div><div class="log-card-time">${esc(l.at?new Date(l.at).toLocaleString('uk-UA'):'—')}</div><div class="log-card-recipient">${esc(l.recipientName||'—')} <span>${esc(l.chatId||'—')}</span></div><div class="log-card-detail">${esc(l.status==='error'?logErrorText(l):(l.text||'OK'))}</div></article>`).join('')}</div>`:'<div class="empty">Відправок ще не було.</div>'}
+    <div class="actions log-actions" style="margin-top:14px"><button class="btn" id="downloadLogs">Зберегти TXT</button><button class="btn danger" id="clearLogs">Очистити журнал</button></div></div>`;
   $('#downloadLogs').onclick=logsToTxt;
   $('#clearLogs').onclick=async()=>{if(confirm('Очистити журнал?'))await action('clearLogs',{})};
+  wireCollapsible('logs',true);
 }
 
 function renderAll(){renderRecipients();renderManagers();renderLogs()}

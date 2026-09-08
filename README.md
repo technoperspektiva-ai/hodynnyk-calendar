@@ -1,4 +1,4 @@
-# v0.6.1 — Access registry
+# v0.6.2 — Access registry
 
 У цій версії старий `Manager access` замінено на серверний реєстр доступу.
 
@@ -90,12 +90,18 @@ The non-sensitive runtime values are now declared in `wrangler.jsonc`: `ADMIN_TE
 Manager calendar now has a compact Telegram self-sync button next to Excel. It calls `/api/telegram/sync-self` and only binds the currently authenticated manager/admin Telegram account to its private bot chat.
 
 
-## v0.6.1 sync visibility fix
+## v0.6.2 sync visibility fix
 - Fixed stale PWA cache version (was still 0.4.4).
 - Added cache-busting query params to main CSS/JS.
 - Telegram self-sync button is visible for both authenticated admin and manager next to Excel.
 
 
-## v0.6.1
+## v0.6.2
 - Admin bot sync uses the currently authenticated Telegram session (`/api/telegram/sync-self`).
 - Manager sync button opens a compact modal with a direct link to `@HodynnykCalendar_bot` and a separate sync action.
+
+
+## v0.6.2 UI polish
+- Адмін-секції згортаються та запам'ятовують стан у браузері.
+- Новий fullscreen splash на базі loading-screen.webp, без повторного показу при дрібній навігації в межах тієї ж PWA-сесії.
+- Робоча логіка API/Telegram/access registry не змінювалась.
