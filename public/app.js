@@ -58,7 +58,7 @@ function loginScreen(message = '', deniedUser = null) {
         <p>${message ? esc(message) : 'Увійди через Telegram, натисни дату та внеси день у кілька дотиків.'}</p>
         ${deniedUser?.id ? `<div class="denied-id-card"><span>Telegram ID</span><strong>${esc(deniedUser.id)}</strong><button class="btn ghost copy-denied-id" type="button" data-id="${esc(deniedUser.id)}">Копіювати ID</button></div>` : ''}
         <div class="actions welcome-actions">
-          ${config?.authConfigured ? '<a class="btn primary" href="/api/auth/login?return=/">Увійти через Telegram</a>' : '<span class="pill">Telegram login ще не налаштований</span>'}
+          ${config?.authConfigured ? `<a class="btn primary" href="/api/auth/login?return=${encodeURIComponent(location.pathname + location.search + location.hash)}">Увійти через Telegram</a>` : '<span class="pill">Telegram login ще не налаштований</span>'}
           <button class="btn ghost" type="button" data-install-pwa hidden>Встановити PWA</button>
         </div>
       </section>

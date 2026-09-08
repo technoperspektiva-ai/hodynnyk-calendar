@@ -6,7 +6,7 @@ const JSON_HEADERS = {
 const enc = new TextEncoder();
 const OWNER_TELEGRAM_ID = '375938798';
 const dec = new TextDecoder();
-const ADMIN_SHELL_HTML = "<!doctype html><html lang=\"uk\"><head>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<meta name=\"theme-color\" content=\"#f4ead6\"><meta name=\"color-scheme\" content=\"light\">\n<meta name=\"description\" content=\"Календарь робочих днів — control panel.\"><meta name=\"robots\" content=\"noindex,nofollow,noarchive\">\n<meta name=\"mobile-web-app-capable\" content=\"yes\"><meta name=\"apple-mobile-web-app-capable\" content=\"yes\"><meta name=\"apple-mobile-web-app-status-bar-style\" content=\"default\"><meta name=\"apple-mobile-web-app-title\" content=\"Календарь робочих днів\">\n<link rel=\"apple-touch-icon\" href=\"/icons/apple-touch-icon.png\"><link rel=\"icon\" type=\"image/png\" sizes=\"192x192\" href=\"/icons/icon-192.png\"><link rel=\"stylesheet\" href=\"/styles.css?v=0.6.0\"><title>Календарь робочих днів</title>\n</head><body><div id=\"app\"></div><div id=\"toast\" class=\"toast\"></div><script src=\"./app.js?v=0.6.0\" defer></script></body></html>\n";
+const ADMIN_SHELL_HTML = "<!doctype html><html lang=\"uk\"><head>\n<meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">\n<meta name=\"theme-color\" content=\"#f4ead6\"><meta name=\"color-scheme\" content=\"light\">\n<meta name=\"description\" content=\"Календарь робочих днів — control panel.\"><meta name=\"robots\" content=\"noindex,nofollow,noarchive\">\n<meta name=\"mobile-web-app-capable\" content=\"yes\"><meta name=\"apple-mobile-web-app-capable\" content=\"yes\"><meta name=\"apple-mobile-web-app-status-bar-style\" content=\"default\"><meta name=\"apple-mobile-web-app-title\" content=\"Календарь робочих днів\">\n<link rel=\"apple-touch-icon\" href=\"/icons/apple-touch-icon.png\"><link rel=\"icon\" type=\"image/png\" sizes=\"192x192\" href=\"/icons/icon-192.png\"><link rel=\"stylesheet\" href=\"/styles.css?v=0.6.1\"><title>Календарь робочих днів</title>\n</head><body><div id=\"app\"></div><div id=\"toast\" class=\"toast\"></div><script src=\"./app.js?v=0.6.1\" defer></script></body></html>\n";
 
 const json = (body, status = 200, extra = {}) => new Response(JSON.stringify(body), {
   status,
@@ -17,6 +17,21 @@ const redirect = (location, headers = {}) => new Response(null, {
   status: 302,
   headers: { location, ...headers }
 });
+
+function authReturnPage(location, sessionToken) {
+  const target = String(location || '/').startsWith('/') && !String(location || '/').startsWith('//') ? String(location || '/') : '/';
+  const escaped = target.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+  const jsTarget = JSON.stringify(target).replace(/</g,'\u003c');
+  return new Response(`<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="refresh" content="0;url=${escaped}"><title>Календарь робочих днів</title></head><body><script>location.replace(${jsTarget});</script><a href="${escaped}">Повернутися до календаря</a></body></html>`, {
+    status: 200,
+    headers: {
+      'content-type':'text/html; charset=utf-8',
+      'cache-control':'no-store',
+      'set-cookie': sessionCookie(sessionToken),
+      'referrer-policy':'no-referrer'
+    }
+  });
+}
 
 const b64url = (input) => {
   const bytes = input instanceof Uint8Array ? input : enc.encode(input);
@@ -515,6 +530,45 @@ function upsertAccessRequest(state, payload) {
   }
 }
 
+
+async function ensurePushRecipientForAccess(state, env, telegramIdRaw, nameRaw, notifications = true) {
+  const telegramId = normalizeTelegramId(telegramIdRaw);
+  if (!/^\d{5,20}$/.test(telegramId)) return null;
+  const name = cleanText(nameRaw, 80) || telegramId;
+  let recipient = (state.recipients || []).find(r => normalizeTelegramId(r.telegramUserId) === telegramId);
+  if (!recipient) {
+    recipient = {
+      id: crypto.randomUUID(),
+      name,
+      chatId: '',
+      telegramUserId: telegramId,
+      enabled: notifications !== false,
+      syncStatus: 'pending',
+      createdAt: new Date().toISOString()
+    };
+    state.recipients.push(recipient);
+  } else {
+    recipient.name = recipient.name && recipient.name !== 'Test' ? recipient.name : name;
+    recipient.enabled = notifications !== false;
+    if (!recipient.chatId) recipient.syncStatus = 'pending';
+  }
+  if (env.TELEGRAM_BOT_TOKEN) {
+    try {
+      const updates = await telegramUpdates(env);
+      const chat = privateChatsFromUpdates(updates).find(c => normalizeTelegramId(c.telegramId) === telegramId);
+      if (chat) {
+        recipient.chatId = chat.chatId;
+        recipient.telegramUserId = telegramId;
+        recipient.syncStatus = 'synced';
+        recipient.syncedAt = new Date().toISOString();
+            recipient.syncStatus = 'synced';
+      }
+    } catch {}
+  }
+  state.recipients = state.recipients.slice(-100);
+  return recipient;
+}
+
 async function handleAction(request, env, user, state) {
   const body = await request.json().catch(() => null);
   const type = body?.type;
@@ -676,6 +730,7 @@ async function handleAction(request, env, user, state) {
     record.notifications = p.notifications !== false;
     record.note = cleanText(p.note,160);
     record.updatedAt = now;
+    await ensurePushRecipientForAccess(state, env, telegramId, record.name || req.name || telegramId, record.notifications);
     state.accessRequests = state.accessRequests.filter(x => x.id !== req.id);
   }
   if (type === 'denyAccessRequest') state.accessRequests = (state.accessRequests || []).filter(x => x.id !== p.id);
@@ -794,7 +849,7 @@ async function telegramOidcCallback(request, env, ctx) {
       if (ctx?.waitUntil) ctx.waitUntil(notifyPromise); else await notifyPromise;
     }
   } catch {}
-  return redirect(flow.returnTo || '/', { 'set-cookie': sessionCookie(session) });
+  return authReturnPage(flow.returnTo || '/', session);
 }
 
 async function runNotificationCycle(env, force = false) {
@@ -805,7 +860,7 @@ async function runNotificationCycle(env, force = false) {
   const tomorrow = addDays(local.date, 1);
   const absence = absenceForDate(tomorrow, state);
   if (!absence && !force) return { ok:true, skipped:'no-absence', tomorrow };
-  const active = state.recipients.filter(r => r.enabled !== false);
+  const active = state.recipients.filter(r => r.enabled !== false && String(r.chatId || '').trim());
   if (!active.length) return { ok:true, skipped:'no-recipients', tomorrow, absence };
   const text = notificationText(absence, tomorrow);
   const results = [];
@@ -837,7 +892,7 @@ async function sendTomorrowShiftNow(env) {
   if (!shift) return { ok:true, skipped:'no-azs-shift', tomorrow };
 
   const absence = absenceForDate(tomorrow, state);
-  const active = state.recipients.filter(r => r.enabled !== false);
+  const active = state.recipients.filter(r => r.enabled !== false && String(r.chatId || '').trim());
   if (!active.length) return { ok:true, skipped:'no-recipients', tomorrow, shift };
 
   const text = tomorrowShiftText(tomorrow, shift, absence);
@@ -940,8 +995,8 @@ export default {
       if (privateResponse) return privateResponse;
     }
 
-    if (path === '/api/health') return json({ ok:true, app:'hodynnyk-calendar', version:'0.6.0' });
-    if (path === '/api/config') return json({ ok:true, authConfigured:authConfigured(env), app:'Hodynnyk', version:'0.6.0', botUsername:String(env.TELEGRAM_BOT_USERNAME || '') });
+    if (path === '/api/health') return json({ ok:true, app:'hodynnyk-calendar', version:'0.6.1' });
+    if (path === '/api/config') return json({ ok:true, authConfigured:authConfigured(env), app:'Hodynnyk', version:'0.6.1', botUsername:String(env.TELEGRAM_BOT_USERNAME || '') });
     if (path === '/api/auth/login') return telegramOidcLogin(request, env);
     if (path === '/api/auth/callback') {
       try { return await telegramOidcCallback(request, env, ctx); }
@@ -1012,7 +1067,7 @@ export default {
             recipient = {
               id: crypto.randomUUID(), name: preferredName, chatId: chat.chatId,
               telegramUserId: telegramId, enabled: true, createdAt: new Date().toISOString(),
-              syncedAt: new Date().toISOString()
+              syncedAt: new Date().toISOString(), syncStatus: 'synced'
             };
             state.recipients.push(recipient);
           }
